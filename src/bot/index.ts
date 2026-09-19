@@ -111,6 +111,7 @@ export async function setCommands(bot: AppBot): Promise<void> {
           { command: 'payments', description: 'Платежи пользователя: /payments [id]' },
           { command: 'refund', description: 'Вернуть звёзды: /refund <charge_id>' },
           { command: 'user', description: 'Карточка пользователя: /user <id>' },
+          { command: 'stars', description: 'Баланс звёзд бота' },
         ],
         { scope: { type: 'chat', chat_id: adminId } },
       )
