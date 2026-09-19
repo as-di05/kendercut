@@ -30,9 +30,11 @@ git status --porcelain | grep -c '\.env$'   # должно быть 0
 
 ```bash
 git remote add origin https://github.com/<ваш-логин>/film-finder.git
-git branch -M main
-git push -u origin main
+git push -u origin HEAD
 ```
+
+Ветка может называться и `main`, и `master` — Render возьмёт ту, что в
+репозитории по умолчанию, в `render.yaml` имя ветки намеренно не задано.
 
 Если стоит [GitHub CLI](https://cli.github.com), то же самое одной командой:
 

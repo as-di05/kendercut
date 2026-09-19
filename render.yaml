@@ -13,7 +13,9 @@ services:
     runtime: node
     plan: starter
     region: frankfurt
-    branch: main
+    # branch намеренно не задан: Render возьмёт ветку репозитория по умолчанию,
+    # будь это main или master. Прописанное здесь имя ломает деплой,
+    # если в репозитории ветка называется иначе.
     # NODE_ENV=production заставил бы npm пропустить devDependencies,
     # а без них нечем собирать TypeScript.
     buildCommand: npm ci --include=dev && npm run build
