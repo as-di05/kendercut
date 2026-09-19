@@ -17,9 +17,9 @@ export function mainMenu(isAdmin: boolean): InlineKeyboard {
     .text('🔍 Поиск', nav.search)
     .row()
     .text('⭐ Подписка', nav.subscription)
-    .text('👤 Профиль', nav.profile)
-    .row()
-    .text('🎁 Пригласить друга', nav.invite);
+    .text('👤 Профиль', nav.profile);
+  // Рефералка пока спрятана — код экрана живой, вернуть можно этой строкой:
+  // kb.row().text('🎁 Пригласить друга', nav.invite);
 
   if (isAdmin) kb.row().text('🛠 Админка', nav.admin);
 

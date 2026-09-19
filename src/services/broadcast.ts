@@ -18,6 +18,10 @@ import { logger } from '../lib/logger.js';
  */
 const SEND_GAP_MS = 60;
 const PAGE = 200;
+/** Через сколько сообщений сверяться, не нажали ли «Остановить». */
+const STATUS_CHECK_EVERY = 25;
+/** Сколько отказов подряд с нуля отправленных считать поломкой самой рассылки. */
+const MISFIRE_LIMIT = 10;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -51,27 +55,49 @@ export async function run(api: Api, id: number): Promise<Broadcast | undefined> 
   let sent = started.sent;
   let failed = started.failed;
   let cursor = started.lastUserId;
+  let misfires = 0;
 
   for (;;) {
     const page = await audiencePage(segment, cursor, PAGE);
     if (page.length === 0) break;
 
-    for (const { tgId } of page) {
-      // Админ мог нажать «Остановить» — проверяем не чаще, чем раз на человека.
-      const current = await getBroadcast(id);
-      if (current?.status !== 'running') {
-        logger.info({ broadcast: id, sent }, 'рассылка остановлена');
-        return current;
+    for (const [index, { tgId }] of page.entries()) {
+      // Проверяем «Остановить» пачками: запрос в базу на каждого получателя
+      // удваивал бы нагрузку ради кнопки, которую жмут раз в жизни.
+      // Двадцать пять сообщений — это полторы секунды, реакция незаметна.
+      if (index % STATUS_CHECK_EVERY === 0) {
+        const current = await getBroadcast(id);
+        if (current?.status !== 'running') {
+          await updateBroadcast(id, { sent, failed, lastUserId: cursor });
+          logger.info({ broadcast: id, sent }, 'рассылка остановлена');
+          return current;
+        }
       }
 
       try {
         await api.sendMessage(tgId, started.text, { parse_mode: 'HTML' });
         sent++;
+        misfires = 0;
       } catch (err) {
         // Заблокировал бота, удалил аккаунт — обычное дело на любой рассылке.
         const description = err instanceof GrammyError ? err.description : String(err);
         logger.debug({ user: tgId, description }, 'не доставлено');
         failed++;
+        misfires++;
+
+        // Никто не получил, а подряд не уходит уже десяток — дело не в
+        // получателях, а в самом сообщении (чаще всего битая HTML-разметка).
+        // Продолжать значит молча сжечь всю рассылку.
+        if (sent === 0 && misfires >= MISFIRE_LIMIT) {
+          logger.error({ broadcast: id, description }, 'рассылка остановлена: не уходит ни одно');
+          return updateBroadcast(id, {
+            status: 'cancelled',
+            sent,
+            failed,
+            lastUserId: cursor,
+            finishedAt: new Date(),
+          });
+        }
       }
 
       cursor = tgId;

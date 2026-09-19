@@ -9,7 +9,7 @@ import {
 import { grantSubscription } from '../db/repositories/subscriptions.js';
 import type { User } from '../db/repositories/users.js';
 import { config } from '../lib/config.js';
-import { plural } from '../lib/format.js';
+import { escapeHtml, plural } from '../lib/format.js';
 import { logger } from '../lib/logger.js';
 import { nav } from '../bot/keyboards/main.js';
 
@@ -75,7 +75,9 @@ async function tellInviter(
   invited: User,
   days: number,
 ): Promise<void> {
-  const name = invited.firstName ?? 'Ваш друг';
+  // Имя приходит из профиля Telegram, то есть его пишет сам человек:
+  // без экранирования угловая скобка в имени ломает разметку сообщения.
+  const name = escapeHtml(invited.firstName ?? 'Ваш друг');
   try {
     await api.sendMessage(
       inviterId,

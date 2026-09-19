@@ -47,3 +47,36 @@ export function parseMskDate(text: string): Date | undefined {
 
 /** Конец суток: срок размещения указывают «по такое-то число включительно». */
 export const endOfMskDay = (date: Date): Date => new Date(date.getTime() + 86_400_000);
+
+/** Пределы Telegram: подпись к медиа и обычное сообщение. */
+export const CAPTION_LIMIT = 1024;
+export const MESSAGE_LIMIT = 4096;
+
+/**
+ * Обрезает уже экранированный текст, не разрубая HTML-сущность пополам:
+ * оборванное «&am» Telegram считает битой разметкой и отвергает сообщение.
+ */
+const cutEscaped = (text: string, max: number): string =>
+  text.length <= max ? text : `${text.slice(0, max - 1).replace(/&[a-z]*$/i, '')}…`;
+
+/**
+ * Собирает подпись из готовой «шапки» и описания так, чтобы влезть в лимит.
+ *
+ * Считать нужно именно тут, а не обрезать описание на глазок: экранирование
+ * раздувает текст (один «&» превращается в пять символов), а жанров у фильма
+ * бывает и восемнадцать. Переполнение — это не усечённая подпись, а отказ
+ * Telegram отправить сообщение целиком.
+ */
+export function fitCaption(
+  head: string,
+  description: string | null | undefined,
+  limit = CAPTION_LIMIT,
+): string {
+  if (!description) return cutEscaped(head, limit);
+
+  const budget = limit - head.length - 2;
+  // На огрызок описания нет смысла тратить место — лучше обойтись шапкой.
+  if (budget < 40) return cutEscaped(head, limit);
+
+  return `${head}\n\n${cutEscaped(escapeHtml(description), budget)}`;
+}

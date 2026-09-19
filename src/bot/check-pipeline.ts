@@ -259,7 +259,7 @@ await bot.handleUpdate(command(GUEST_ID, '/start'));
 const greeting = last('sendMessage');
 check(greeting !== undefined, 'на /start бот отвечает');
 check(String(greeting?.payload['text']).includes('Кинотека'), 'в ответе приветствие');
-check(buttons(greeting?.payload).length === 5, 'в меню 5 кнопок, админской нет');
+check(buttons(greeting?.payload).length === 4, 'в меню 4 кнопки, админской нет');
 
 const created = await db.query.users.findFirst({ where: eq(users.tgId, GUEST_ID) });
 check(created !== undefined, 'пользователь записан в БД');
@@ -270,7 +270,7 @@ check(sessionKeys.length === 1, 'сессия создана в Redis');
 // ── 2. Админ видит лишнюю кнопку ──────────────────────────────────
 calls.length = 0;
 await bot.handleUpdate(command(ADMIN_ID, '/start'));
-check(buttons(last('sendMessage')?.payload).length === 6, 'админу показана кнопка «Админка»');
+check(buttons(last('sendMessage')?.payload).length === 5, 'админу показана кнопка «Админка»');
 
 // ── 3. Диплинк рефералки ──────────────────────────────────────────
 const REF_ID = 999_000_002;
@@ -1293,6 +1293,100 @@ check(
   'повторная та же ошибка админа не будит',
 );
 
+// ── 12m2. Команда сбрасывает любой незавершённый ввод ──────────────
+await bot.handleUpdate(press(ADMIN_ID, `a:spf:${timed!.id}:title`));
+await bot.handleUpdate(command(ADMIN_ID, '/start'));
+calls.length = 0;
+await bot.handleUpdate(text(ADMIN_ID, 'Случайный текст после команды'));
+check(
+  (await getChannelByChatId(PARTNER_CHAT))?.title !== 'Случайный текст после команды',
+  'после команды текст не улетает в поле канала',
+);
+
+// ── 12m. Черновики не должны утекать ──────────────────────────────
+// Лимитер к этому моменту на взводе — сбрасываем, иначе вместо ответов
+// бота проверки увидят предупреждение о флуде.
+await redis.del(key.rateLimit(GUEST_ID));
+
+// id последовательные, поэтому «Смотреть» и диплинк film_N обязаны
+// проверять публикацию, а не только существование фильма.
+const hidden = await db
+  .insert(films)
+  .values({
+    storageChatId: config.STORAGE_CHANNEL_ID ?? -100,
+    storageMessageId: 987_654,
+    fileId: 'BAAChidden',
+    fileUniqueId: 'checkhidden',
+    titleRu: 'Неопубликованный фильм',
+    isPublished: false,
+  })
+  .returning();
+
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:f:${hidden[0]!.id}`));
+check(
+  !calls.some((c) => String(c.payload['caption'] ?? c.payload['text']).includes('Неопубликованный')),
+  'карточка черновика не открывается по прямой ссылке',
+);
+
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:w:${hidden[0]!.id}`));
+check(!calls.some((c) => c.method === 'copyMessage'), 'черновик не выдаётся по кнопке «Смотреть»');
+check(
+  String(last('answerCallbackQuery')?.payload['text']).includes('недоступен'),
+  'на запрос черновика отвечают «недоступен»',
+);
+
+calls.length = 0;
+await bot.handleUpdate(command(GUEST_ID, `/start film_${hidden[0]!.id}`));
+check(
+  String(last('sendMessage')?.payload['text']).includes('больше недоступен'),
+  'диплинк на черновик тоже закрыт',
+);
+
+// ── 12n. Длина подписи ────────────────────────────────────────────
+// У подписи к медиа предел 1024 символа: переполнение — это не усечённый
+// текст, а отказ Telegram отправить карточку целиком.
+const longFilm = await db.query.films.findFirst({ where: eq(films.fileUniqueId, 'checkcat0') });
+await db
+  .update(films)
+  .set({
+    description: 'Очень длинное описание. '.repeat(120),
+    titleOrig: 'A'.repeat(90),
+    posterFileId: 'AgACtestposter',
+  })
+  .where(eq(films.id, longFilm!.id));
+
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:f:${longFilm!.id}`));
+const photo = last('sendPhoto');
+const captionLength = String(photo?.payload['caption'] ?? '').length;
+check(photo !== undefined, 'карточка с постером отправляется');
+check(
+  captionLength > 0 && captionLength <= 1024,
+  `подпись карточки укладывается в лимит (${captionLength} символов)`,
+);
+
+// Экранированный текст не должен обрываться посреди HTML-сущности.
+await db
+  .update(films)
+  .set({ description: `${'&'.repeat(600)} конец` })
+  .where(eq(films.id, longFilm!.id));
+
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:f:${longFilm!.id}`));
+const escapedCaption = String(last('sendPhoto')?.payload['caption'] ?? '');
+check(escapedCaption.length <= 1024, 'экранирование не выводит подпись за лимит');
+check(
+  !/&[a-z]*…$/i.test(escapedCaption),
+  'подпись не обрывается посреди HTML-сущности',
+);
+
+await db
+  .update(films)
+  .set({ description: null, titleOrig: null, posterFileId: null })
+  .where(eq(films.id, longFilm!.id));
+
 // ── 13. Права ─────────────────────────────────────────────────────
 calls.length = 0;
 await bot.handleUpdate(press(GUEST_ID, 'a:drafts'));
@@ -1324,7 +1418,9 @@ const failed = results.filter((r) => r.startsWith('❌')).length;
 console.log(`\n${results.length - failed} из ${results.length} проверок пройдено`);
 
 // Уборка.
-await db.delete(films).where(inArray(films.fileUniqueId, [UNIQ, NO_NAME_UNIQ, 'foreign1', ...CATALOG_UNIQS]));
+await db.delete(films).where(
+  inArray(films.fileUniqueId, [UNIQ, NO_NAME_UNIQ, 'foreign1', 'checkhidden', ...CATALOG_UNIQS]),
+);
 // user_id у запросов обнуляется при удалении юзера, поэтому чистим и по тексту:
 // иначе мусор от упавшего прогона ломает следующий.
 await db.delete(searchQueries).where(inArray(searchQueries.userId, [GUEST_ID]));

@@ -10,7 +10,7 @@ import {
   updateFilm,
 } from '../../../db/repositories/films.js';
 import type { Film } from '../../../db/repositories/films.js';
-import { escapeHtml, plural } from '../../../lib/format.js';
+import { escapeHtml, fitCaption, plural } from '../../../lib/format.js';
 import { logger } from '../../../lib/logger.js';
 import { getMovie, isTmdbConfigured, searchMovies } from '../../../services/tmdb.js';
 import type { BotContext } from '../../context.js';
@@ -341,19 +341,20 @@ async function cardText(film: Film): Promise<string> {
     film.rating ? `★ ${film.rating.toFixed(1)}` : undefined,
   ].filter(Boolean);
 
-  const lines = [
+  const status = film.isPublished ? '✅ Опубликован' : '📥 Черновик';
+  const head = [
     `<b>${escapeHtml(film.titleRu)}</b>`,
     film.titleOrig ? `<i>${escapeHtml(film.titleOrig)}</i>` : undefined,
     meta.length ? meta.join(' · ') : undefined,
-    genreNames.length ? genreNames.join(', ') : undefined,
+    genreNames.length ? escapeHtml(genreNames.join(', ')) : undefined,
     '',
-    film.description ? escapeHtml(truncate(film.description, 600)) : '<i>Описание не заполнено</i>',
-    '',
-    film.isPublished ? '✅ Опубликован' : '📥 Черновик',
-  ];
+    status,
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n');
 
-  return lines.filter((line) => line !== undefined).join('\n');
+  // Карточка уходит подписью к постеру — тот же предел 1024 символа.
+  return film.description
+    ? fitCaption(head, film.description)
+    : `${head}\n\n<i>Описание не заполнено</i>`;
 }
-
-const truncate = (text: string, max: number): string =>
-  text.length <= max ? text : `${text.slice(0, max - 1)}…`;

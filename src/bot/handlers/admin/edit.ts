@@ -1,6 +1,7 @@
 import { Composer } from 'grammy';
 import { listGenres } from '../../../db/repositories/catalog.js';
 import { getFilmGenreIds, getFilmRow, toggleGenre } from '../../../db/repositories/films.js';
+import { escapeHtml } from '../../../lib/format.js';
 import { isTmdbConfigured } from '../../../services/tmdb.js';
 import type { Awaiting, BotContext } from '../../context.js';
 import { editKeyboard, fieldFrom, genresKeyboard, idsFrom } from '../../keyboards/admin.js';
@@ -31,7 +32,7 @@ adminEdit.callbackQuery(/^a:ed:\d+$/, async (ctx) => {
 
   // Показываем, что уже заполнено, а что нет — иначе непонятно, куда жать.
   const filled = [
-    `Название: ${film.titleRu}`,
+    `Название: ${escapeHtml(film.titleRu)}`,
     `Год: ${film.year ?? '—'}`,
     `Описание: ${film.description ? 'есть' : '—'}`,
     `Постер: ${film.posterFileId ? 'есть' : '—'}`,

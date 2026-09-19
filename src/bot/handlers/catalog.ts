@@ -9,7 +9,7 @@ import {
   randomPublished,
 } from '../../db/repositories/films.js';
 import type { FilmCard } from '../../db/repositories/films.js';
-import { escapeHtml } from '../../lib/format.js';
+import { escapeHtml, fitCaption } from '../../lib/format.js';
 import { serveFilm } from './watch.js';
 import type { BotContext } from '../context.js';
 import {
@@ -193,17 +193,15 @@ async function filmCaption(film: FilmCard): Promise<string> {
     film.rating ? `★ ${film.rating.toFixed(1)}` : undefined,
   ].filter(Boolean);
 
-  return [
+  const head = [
     `<b>${escapeHtml(film.titleRu)}</b>`,
     film.titleOrig ? `<i>${escapeHtml(film.titleOrig)}</i>` : undefined,
     meta.length ? meta.join(' · ') : undefined,
-    genreNames.length ? genreNames.join(', ') : undefined,
-    '',
-    film.description ? escapeHtml(truncate(film.description, 700)) : undefined,
+    genreNames.length ? escapeHtml(genreNames.join(', ')) : undefined,
   ]
     .filter((line) => line !== undefined)
     .join('\n');
-}
 
-const truncate = (text: string, max: number): string =>
-  text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  // Карточка уходит подписью к постеру, а там предел 1024 символа.
+  return fitCaption(head, film.description);
+}

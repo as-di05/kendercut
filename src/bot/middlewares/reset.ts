@@ -11,8 +11,14 @@ export function resetOnCommand(): Middleware<BotContext> {
     if (!ctx.from) return next();
 
     if (ctx.message?.text?.startsWith('/') && ctx.session.awaiting) {
+      // Сбрасываем всё, к чему привязан незавершённый ввод. Забытый здесь
+      // editChannelId приводил бы к тому, что следующий текст админа улетает
+      // в поле канала, из которого он давно ушёл.
       ctx.session.awaiting = undefined;
       ctx.session.draftFilmId = undefined;
+      ctx.session.editPlanId = undefined;
+      ctx.session.editChannelId = undefined;
+      ctx.session.broadcastSegment = undefined;
     }
     return next();
   };

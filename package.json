@@ -18,6 +18,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:check": "LOG_LEVEL=error tsx src/db/check-search.ts",
+    "tmdb:check": "LOG_LEVEL=warn tsx src/services/check-tmdb.ts",
     "db:studio": "drizzle-kit studio",
     "bot:check": "LOG_LEVEL=error tsx src/bot/check-pipeline.ts",
     "docker:up": "docker compose up -d",

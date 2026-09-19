@@ -1,6 +1,6 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { getPlan } from '../../db/repositories/catalog.js';
-import { formatDate } from '../../lib/format.js';
+import { escapeHtml, formatDate } from '../../lib/format.js';
 import { logger } from '../../lib/logger.js';
 import {
   applyPayment,
@@ -56,7 +56,7 @@ paymentsHandler.callbackQuery(/^s:auto:(\d+)$/, async (ctx) => {
 
   await ctx.reply(
     [
-      `🔄 <b>${plan.title} с автопродлением</b>`,
+      `🔄 <b>${escapeHtml(plan.title)} с автопродлением</b>`,
       '',
       `${plan.priceStars} ⭐ раз в 30 дней. Отменить можно в любой момент —`,
       'Telegram → Настройки → Мои звёзды → Подписки.',

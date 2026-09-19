@@ -23,8 +23,19 @@ const card = {
 
 export type FilmCard = { [K in keyof typeof card]: Film[K] };
 
+/**
+ * Карточка для пользователя — только опубликованная.
+ *
+ * Фильтр по is_published здесь обязателен: id последовательные, и без него
+ * диплинк `film_<id>` или кнопка «Смотреть» отдавали бы черновики и снятое
+ * с публикации простым перебором чисел. Админке нужен getFilmRow.
+ */
 export async function getFilm(id: number): Promise<FilmCard | undefined> {
-  const [film] = await db.select(card).from(films).where(eq(films.id, id)).limit(1);
+  const [film] = await db
+    .select(card)
+    .from(films)
+    .where(and(eq(films.id, id), eq(films.isPublished, true)))
+    .limit(1);
   return film;
 }
 

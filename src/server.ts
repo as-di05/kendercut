@@ -47,8 +47,9 @@ export async function startBot(bot: AppBot): Promise<Mode> {
   }
 
   // Оставшийся с прошлого запуска вебхук ломает getUpdates ошибкой 409,
-  // поэтому перед polling его обязательно снимаем.
-  await bot.api.deleteWebhook({ drop_pending_updates: true });
+  // поэтому перед polling его обязательно снимаем. Очередь при этом не
+  // сбрасываем: написанное людьми за время деплоя должно дойти.
+  await bot.api.deleteWebhook();
 
   if (config.PORT) listen(health);
 
