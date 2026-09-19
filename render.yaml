@@ -1,0 +1,40 @@
+# Развёртывание на Render: один воркер.
+#
+# База и Redis берутся снаружи (Neon и Upstash) — у них есть бесплатные
+# тарифы, а свои Postgres и Key Value на Render стоят денег. Если решите
+# перенести их сюда, замените DATABASE_URL и REDIS_URL на fromDatabase
+# и fromService — остальное менять не нужно.
+#
+# Бот работает на long polling, поэтому это worker, а не web service:
+# ни домена, ни TLS, ни вебхука не требуется.
+services:
+  - type: worker
+    name: film-finder-bot
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    # NODE_ENV=production заставил бы npm пропустить devDependencies,
+    # а без них нечем собирать TypeScript.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+
+      # Значения задаются в дашборде Render — в репозиторий они не попадают.
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: STORAGE_CHANNEL_ID
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false

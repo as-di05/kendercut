@@ -1,0 +1,59 @@
+# Локально НЕ нужен: Postgres и Redis стоят нативно через brew.
+# Этот файл — для деплоя на VPS: `docker compose up -d --build`.
+services:
+  bot:
+    build: .
+    container_name: filmfinder-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Внутри сети compose соседи зовутся по имени сервиса, а порты — родные,
+      # а не проброшенные наружу.
+      DATABASE_URL: postgres://filmfinder:filmfinder@postgres:5432/filmfinder
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    container_name: filmfinder-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: filmfinder
+      POSTGRES_PASSWORD: filmfinder
+      POSTGRES_DB: filmfinder
+      # Обязательно: с локалью C расширение pg_trgm не строит тригаммы
+      # для кириллицы и поиск по русским названиям молча ломается.
+      POSTGRES_INITDB_ARGS: '--locale=en_US.UTF-8'
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U filmfinder -d filmfinder']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: filmfinder-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - '6380:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:
