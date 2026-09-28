@@ -33,6 +33,16 @@ export async function deliverFilm(
 
   let messageId: number | undefined;
 
+  // Карточка без файла: её завели раньше видео. Публиковать такую не дают,
+  // но проверка здесь нужна — это последний рубеж перед выдачей.
+  if (film.storageChatId === null || film.storageMessageId === null) {
+    if (!film.fileId) {
+      logger.error({ film: film.id }, 'к фильму не привязан файл, выдавать нечего');
+      return { ok: false, reason: 'file_missing' };
+    }
+    return sendByFileId(api, userId, film, options);
+  }
+
   try {
     const copied = await api.copyMessage(userId, film.storageChatId, film.storageMessageId, options);
     messageId = copied.message_id;
@@ -59,6 +69,31 @@ export async function deliverFilm(
   await scheduleDeletion(userId, userId, messageId, deleteAt);
 
   return { ok: true, messageId };
+}
+
+type SendOptions = { caption: string; parse_mode: 'HTML'; protect_content: boolean };
+
+/** Запасной путь: координат поста нет, остаётся сохранённый file_id. */
+async function sendByFileId(
+  api: Api,
+  userId: number,
+  film: FilmCard,
+  options: SendOptions,
+): Promise<DeliveryResult> {
+  try {
+    const sent = await api.sendVideo(userId, film.fileId!, options);
+    await recordView(userId, film.id);
+    await scheduleDeletion(
+      userId,
+      userId,
+      sent.message_id,
+      new Date(Date.now() + config.AUTO_DELETE_MINUTES * 60_000),
+    );
+    return { ok: true, messageId: sent.message_id };
+  } catch (err) {
+    logger.error({ film: film.id, err }, 'file_id не сработал, отдавать нечем');
+    return { ok: false, reason: 'file_missing' };
+  }
 }
 
 /** Про автоудаление намеренно молчим: предупреждение только подталкивает скачать. */

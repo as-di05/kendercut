@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql as raw } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql as raw } from 'drizzle-orm';
 import { db } from '../index.js';
 import { filmGenres, films, genres } from '../schema.js';
 
@@ -8,6 +8,7 @@ export type NewFilm = typeof films.$inferInsert;
 /** Колонки карточки. Сам search_vector наружу не отдаём — он служебный. */
 const card = {
   id: films.id,
+  code: films.code,
   titleRu: films.titleRu,
   titleOrig: films.titleOrig,
   year: films.year,
@@ -100,7 +101,171 @@ export async function countPublished(): Promise<number> {
   return row?.count ?? 0;
 }
 
+/**
+ * Поиск по коду — то, ради чего код и существует.
+ * Только опубликованное: код от неготовой карточки не должен ничего открывать,
+ * даже если его угадали.
+ */
+export async function getFilmByCode(code: string): Promise<FilmCard | undefined> {
+  const [film] = await db
+    .select(card)
+    .from(films)
+    .where(and(eq(films.code, code.trim()), eq(films.isPublished, true)))
+    .limit(1);
+  return film;
+}
+
+// ─── Коды ────────────────────────────────────────────────────────────
+
+/** Сколько цифр в коде. Четыре — это десять тысяч комбинаций, хватает надолго. */
+const CODE_LENGTH = 4;
+
+export const isValidCode = (code: string): boolean => /^\d{4,6}$/.test(code.trim());
+
+/**
+ * Свободный код. Берём случайный, а не следующий по счёту: последовательные
+ * коды выдают размер каталога и перебираются подряд.
+ *
+ * Если за десяток попыток свободного не нашлось, каталог явно перерос
+ * четырёхзначные коды — добавляем разряд, а не крутим цикл до победного.
+ */
+export async function generateCode(): Promise<string> {
+  for (let length = CODE_LENGTH; length <= 6; length++) {
+    const max = 10 ** length;
+    const min = 10 ** (length - 1);
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const code = String(min + Math.floor(Math.random() * (max - min)));
+      if (!(await codeTaken(code))) return code;
+    }
+  }
+
+  throw new Error('не удалось подобрать свободный код фильма');
+}
+
+/** Фильм по координатам поста — не приезжал ли этот файл раньше. */
+export async function getFilmByStorage(
+  storageChatId: number,
+  storageMessageId: number,
+): Promise<Film | undefined> {
+  const [film] = await db
+    .select()
+    .from(films)
+    .where(
+      and(eq(films.storageChatId, storageChatId), eq(films.storageMessageId, storageMessageId)),
+    )
+    .limit(1);
+  return film;
+}
+
+export async function codeTaken(code: string, exceptFilmId?: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: films.id })
+    .from(films)
+    .where(eq(films.code, code.trim()))
+    .limit(1);
+
+  return row !== undefined && row.id !== exceptFilmId;
+}
+
 // ─── Админские операции ──────────────────────────────────────────────
+
+/**
+ * Карточка, заведённая до файла: описание готовится заранее, видео
+ * привязывается потом. Код выдаём сразу — его уже можно публиковать.
+ */
+export async function createFilmCard(titleRu: string): Promise<Film> {
+  const [film] = await db
+    .insert(films)
+    .values({ titleRu, code: await generateCode(), isPublished: false })
+    .returning();
+
+  return film!;
+}
+
+export type FileInput = {
+  storageChatId: number;
+  storageMessageId: number;
+  fileId: string;
+  fileUniqueId: string;
+  fileSize?: number | undefined;
+  durationMin?: number | undefined;
+};
+
+/**
+ * Привязывает файл к существующей карточке.
+ * Длительность не перетираем: у карточки она могла прийти из TMDB и быть
+ * точнее, чем у файла.
+ */
+export async function attachFile(filmId: number, file: FileInput): Promise<Film | undefined> {
+  const [film] = await db
+    .update(films)
+    .set({
+      storageChatId: file.storageChatId,
+      storageMessageId: file.storageMessageId,
+      fileId: file.fileId,
+      fileUniqueId: file.fileUniqueId,
+      fileSize: file.fileSize ?? null,
+      ...(file.durationMin === undefined ? {} : { durationMin: file.durationMin }),
+    })
+    .where(eq(films.id, filmId))
+    .returning();
+
+  return film;
+}
+
+/**
+ * Переносит файл с автоматического черновика на готовую карточку.
+ *
+ * Сначала удаляем черновик, потом привязываем: на паре chat_id + message_id
+ * и на file_unique_id стоят UNIQUE, и обратный порядок упёрся бы в них.
+ * Обе операции в одной транзакции — иначе при сбое посередине файл
+ * потеряется вместе с черновиком.
+ */
+export async function moveFileToCard(
+  fromFilmId: number,
+  toFilmId: number,
+): Promise<Film | undefined> {
+  return db.transaction(async (tx) => {
+    const [source] = await tx.select().from(films).where(eq(films.id, fromFilmId)).limit(1);
+    if (!source?.storageChatId || !source.storageMessageId) return undefined;
+
+    await tx.delete(films).where(eq(films.id, fromFilmId));
+
+    const [updated] = await tx
+      .update(films)
+      .set({
+        storageChatId: source.storageChatId,
+        storageMessageId: source.storageMessageId,
+        fileId: source.fileId,
+        fileUniqueId: source.fileUniqueId,
+        fileSize: source.fileSize,
+        ...(source.durationMin === null ? {} : { durationMin: source.durationMin }),
+      })
+      .where(eq(films.id, toFilmId))
+      .returning();
+
+    return updated;
+  });
+}
+
+/** Карточки без файла — к ним и привязывают только что залитое видео. */
+export async function listWithoutFile(limit = 20): Promise<Film[]> {
+  return db
+    .select()
+    .from(films)
+    .where(isNull(films.storageMessageId))
+    .orderBy(desc(films.createdAt))
+    .limit(limit);
+}
+
+export async function countWithoutFile(): Promise<number> {
+  const [row] = await db
+    .select({ count: raw<number>`count(*)::int` })
+    .from(films)
+    .where(isNull(films.storageMessageId));
+  return row?.count ?? 0;
+}
 
 export type DraftInput = {
   storageChatId: number;
@@ -126,7 +291,7 @@ export async function createDraft(input: DraftInput): Promise<{ film: Film; isNe
 
   const [film] = await db
     .insert(films)
-    .values({ ...input, isPublished: false })
+    .values({ ...input, code: await generateCode(), isPublished: false })
     .onConflictDoNothing({ target: [films.storageChatId, films.storageMessageId] })
     .returning();
 

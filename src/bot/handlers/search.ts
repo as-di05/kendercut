@@ -1,6 +1,7 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { logSearch } from '../../db/repositories/analytics.js';
-import { searchFilms } from '../../db/repositories/films.js';
+import { getFilmByCode, isValidCode, searchFilms } from '../../db/repositories/films.js';
+import { openFilmCard } from './catalog.js';
 import { escapeHtml, plural } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
 import { renderScreen } from '../screen.js';
@@ -15,7 +16,7 @@ const MIN_QUERY = 2;
 const PROMPT = [
   '🔍 <b>Поиск</b>',
   '',
-  'Пришлите название фильма.',
+  'Пришлите название фильма или его код.',
   '<i>Опечатки не страшны: «интерстелар» найдёт «Интерстеллар».</i>',
 ].join('\n');
 
@@ -32,6 +33,19 @@ searchHandler.callbackQuery(nav.search, async (ctx) => {
 searchHandler.on('message:text', async (ctx, next) => {
   const query = ctx.message.text.trim();
   if (query.startsWith('/')) return next();
+
+  // Код проверяем раньше обычного поиска, но не вместо него: «2012» — это
+  // и код, и название фильма. Не нашлось по коду — ищем как текст.
+  if (isValidCode(query)) {
+    const byCode = await getFilmByCode(query);
+    if (byCode) {
+      ctx.session.awaiting = undefined;
+      ctx.session.back = cat.home;
+      await logSearch(ctx.from?.id, query, 1);
+      await openFilmCard(ctx, byCode.id);
+      return;
+    }
+  }
 
   if (query.length < MIN_QUERY) {
     await ctx.reply('Слишком короткий запрос — пришлите хотя бы две буквы.');

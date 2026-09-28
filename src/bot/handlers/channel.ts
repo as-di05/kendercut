@@ -89,7 +89,14 @@ async function notifyAdmins(
       ].join('\n');
 
   const keyboard = isNew
-    ? new InlineKeyboard().text('Оформить', admin.fill(filmId)).text('Удалить', admin.confirmDelete(filmId))
+    ? new InlineKeyboard()
+        .text('Оформить', admin.fill(filmId))
+        .row()
+        // Карточку могли завести заранее — тогда файл надо не оформлять
+        // заново, а пристроить к готовому описанию.
+        .text('📎 К готовой карточке', admin.attachList(filmId))
+        .row()
+        .text('Удалить', admin.confirmDelete(filmId))
     : new InlineKeyboard().text('Открыть карточку', admin.card(filmId));
 
   for (const adminId of config.ADMIN_IDS) {

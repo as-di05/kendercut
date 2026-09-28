@@ -60,10 +60,21 @@ export const films = pgTable(
     /** Постер как file_id в Telegram — чтобы не ходить в TMDB на каждый показ. */
     posterFileId: text('poster_file_id'),
 
+    /**
+     * Короткий код фильма — его публикуют в рекламе, а человек вводит боту.
+     * Цифры, а не буквы: на русской раскладке «ABCD» превращается в «ФИСВ»,
+     * и половина людей до фильма не дойдёт.
+     */
+    code: text('code'),
+
     // Где лежит сам файл. Пара chat_id + message_id — основа выдачи:
     // copyMessage не ломается при протухании file_id.
-    storageChatId: tgId('storage_chat_id').notNull(),
-    storageMessageId: integer('storage_message_id').notNull(),
+    //
+    // Пусто у карточки, заведённой раньше файла: описание можно подготовить
+    // заранее, а видео привязать потом. Публиковать такую нельзя — об этом
+    // отдельная проверка.
+    storageChatId: tgId('storage_chat_id'),
+    storageMessageId: integer('storage_message_id'),
     /** Кэш для быстрой отправки. Может протухнуть — тогда откат на copyMessage. */
     fileId: text('file_id'),
     /** Стабильный глобально, используется для защиты от повторной заливки. */
@@ -87,6 +98,8 @@ export const films = pgTable(
   (t) => [
     uniqueIndex('films_storage_msg_idx').on(t.storageChatId, t.storageMessageId),
     uniqueIndex('films_file_unique_idx').on(t.fileUniqueId),
+    // По коду ищут пользователи, поэтому он обязан быть уникальным.
+    uniqueIndex('films_code_idx').on(t.code),
     index('films_published_idx').on(t.isPublished, t.createdAt),
     index('films_tmdb_idx').on(t.tmdbId),
 

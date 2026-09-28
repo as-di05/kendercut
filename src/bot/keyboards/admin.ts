@@ -13,6 +13,15 @@ export const admin = {
   fill: (id: number) => `a:fill:${id}`,
   manual: (id: number) => `a:man:${id}`,
 
+  /** Карточка заводится без файла: описание готовится раньше видео. */
+  filmNew: 'a:new',
+  code: (id: number) => `a:code:${id}`,
+  /** Попросить переслать пост с файлом для этой карточки. */
+  attach: (id: number) => `a:att:${id}`,
+  /** Список карточек без файла — куда пристроить только что залитое видео. */
+  attachList: (id: number) => `a:attl:${id}`,
+  attachTo: (fileFilmId: number, cardId: number) => `a:att2:${fileFilmId}:${cardId}`,
+
   edit: (id: number) => `a:ed:${id}`,
   field: (id: number, field: EditField) => `a:f:${id}:${field}`,
   genresScreen: (id: number) => `a:gs:${id}`,
@@ -68,6 +77,8 @@ export const idsFrom = (data: string): number[] =>
 
 export const panelKeyboard = (draftCount: number): InlineKeyboard =>
   new InlineKeyboard()
+    .text('➕ Добавить фильм', admin.filmNew)
+    .row()
     .text(draftCount > 0 ? `📥 Неоформленные (${draftCount})` : '📥 Неоформленные', admin.drafts)
     .row()
     .text('🎬 Опубликованные', admin.published)
@@ -91,13 +102,22 @@ export const fieldFrom = (data: string): EditField | undefined => {
     : undefined;
 };
 
-export const cardKeyboard = (filmId: number, isPublished: boolean): InlineKeyboard => {
+export const cardKeyboard = (
+  filmId: number,
+  isPublished: boolean,
+  hasFile: boolean,
+): InlineKeyboard => {
   const kb = new InlineKeyboard();
-  if (isPublished) kb.text('🚫 Снять с публикации', admin.unpublish(filmId));
+
+  // Без файла публиковать нечего — вместо публикации предлагаем привязать видео.
+  if (!hasFile) kb.text('📎 Привязать файл', admin.attach(filmId));
+  else if (isPublished) kb.text('🚫 Снять с публикации', admin.unpublish(filmId));
   else kb.text('✅ Опубликовать', admin.publish(filmId));
+
   return kb
     .row()
     .text('✏️ Редактировать', admin.edit(filmId))
+    .text('🔢 Код', admin.code(filmId))
     .row()
     .text('🗑 Удалить', admin.confirmDelete(filmId))
     .row()

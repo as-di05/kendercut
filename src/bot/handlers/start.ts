@@ -1,4 +1,5 @@
 import { Composer } from 'grammy';
+import { getFilmByCode } from '../../db/repositories/films.js';
 import type { BotContext } from '../context.js';
 import { renderScreen } from '../screen.js';
 import { cat } from '../keyboards/catalog.js';
@@ -17,13 +18,19 @@ const GREETING = [
 startHandler.command('start', async (ctx) => {
   const payload = (ctx.match ?? '').trim();
 
-  // Диплинк на конкретный фильм: /start film_42.
-  const filmId = parseFilmDeeplink(payload);
+  // Диплинк на конкретный фильм: /start film_42 или /start code_1234.
+  // Второй вид нужен, чтобы код из рекламы работал ссылкой, а не только вводом.
+  const filmId = payload.startsWith('code_')
+    ? (await getFilmByCode(payload.slice('code_'.length)))?.id
+    : parseFilmDeeplink(payload);
+
   if (filmId !== undefined) {
     ctx.session.awaiting = undefined;
     ctx.session.back = cat.home;
     if (await openFilmCard(ctx, filmId)) return;
+  }
 
+  if (filmId !== undefined || payload.startsWith('code_')) {
     await ctx.reply('Этот фильм больше недоступен.', { reply_markup: mainMenu(ctx.isAdmin) });
     return;
   }

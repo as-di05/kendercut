@@ -1332,6 +1332,127 @@ check(
   'после команды текст не улетает в поле канала',
 );
 
+// ── 12p. Карточка без файла и код фильма ──────────────────────────
+// Описание готовится раньше видео: карточка заводится с названия,
+// получает код, и только потом к ней привязывается файл.
+await redis.del(key.rateLimit(ADMIN_ID));
+
+calls.length = 0;
+await bot.handleUpdate(press(ADMIN_ID, 'a:new'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('название'),
+  'кнопка «Добавить фильм» просит название',
+);
+
+calls.length = 0;
+await bot.handleUpdate(text(ADMIN_ID, 'Фильм без файла'));
+const cardOnly = await db.query.films.findFirst({ where: eq(films.titleRu, 'Фильм без файла') });
+check(cardOnly !== undefined, 'карточка заводится без файла');
+check(cardOnly?.storageMessageId === null, 'у неё нет координат поста');
+check(/^\d{4,6}$/.test(cardOnly?.code ?? ''), `код выдан сразу: ${cardOnly?.code}`);
+
+// Публиковать нечего, пока нет файла.
+calls.length = 0;
+await bot.handleUpdate(press(ADMIN_ID, `a:pub1:${cardOnly!.id}`));
+check(
+  String(last('answerCallbackQuery')?.payload['text']).includes('привяжите файл'),
+  'без файла публиковать не дают',
+);
+check(
+  (await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) }))?.isPublished === false,
+  'и карточка действительно осталась неопубликованной',
+);
+
+// Код меняется вручную, занятый — отклоняется.
+await bot.handleUpdate(press(ADMIN_ID, `a:code:${cardOnly!.id}`));
+calls.length = 0;
+await bot.handleUpdate(text(ADMIN_ID, '7777'));
+check(
+  (await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) }))?.code === '7777',
+  'админ задаёт код вручную',
+);
+
+const occupied = await db.query.films.findFirst({ where: eq(films.fileUniqueId, UNIQ) });
+await bot.handleUpdate(press(ADMIN_ID, `a:code:${occupied!.id}`));
+calls.length = 0;
+await bot.handleUpdate(text(ADMIN_ID, '7777'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('занят'),
+  'занятый код не отдаётся второму фильму',
+);
+check(
+  (await db.query.films.findFirst({ where: eq(films.id, occupied!.id) }))?.code !== '7777',
+  'и код второго фильма не поменялся',
+);
+
+// Привязка файла: заливаем видео в канал и цепляем его к готовой карточке.
+const ATTACH_UNIQ = 'checkattach';
+await db.delete(films).where(eq(films.fileUniqueId, ATTACH_UNIQ));
+calls.length = 0;
+await bot.handleUpdate(channelPost(990_500, ATTACH_UNIQ));
+check(
+  buttons(last('sendMessage')?.payload).some((b) => b.includes('готовой карточке')),
+  'в уведомлении о новом файле есть привязка к карточке',
+);
+
+const uploaded = await db.query.films.findFirst({ where: eq(films.fileUniqueId, ATTACH_UNIQ) });
+calls.length = 0;
+await bot.handleUpdate(press(ADMIN_ID, `a:attl:${uploaded!.id}`));
+check(
+  buttons(last('sendMessage')?.payload).some((b) => b.includes('Фильм без файла')),
+  'предлагаются карточки без файла',
+);
+
+calls.length = 0;
+await bot.handleUpdate(press(ADMIN_ID, `a:att2:${uploaded!.id}:${cardOnly!.id}`));
+const attached = await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) });
+check(attached?.storageMessageId === 990_500, 'файл переехал на готовую карточку');
+check(attached?.fileUniqueId === ATTACH_UNIQ, 'file_unique_id тоже переехал');
+check(attached?.code === '7777', 'код карточки при этом сохранился');
+check(
+  (await db.query.films.findFirst({ where: eq(films.id, uploaded!.id) })) === undefined,
+  'автоматический черновик убран, дубля не осталось',
+);
+
+// Теперь публикация проходит, и фильм ищется по коду.
+await bot.handleUpdate(press(ADMIN_ID, `a:pub1:${cardOnly!.id}`));
+check(
+  (await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) }))?.isPublished === true,
+  'с файлом публикация проходит',
+);
+
+await redis.del(key.rateLimit(GUEST_ID));
+calls.length = 0;
+await bot.handleUpdate(text(GUEST_ID, '7777'));
+check(
+  calls.some((c) => String(c.payload['text'] ?? c.payload['caption']).includes('Фильм без файла')),
+  'пользователь находит фильм по коду',
+);
+
+calls.length = 0;
+await bot.handleUpdate(command(GUEST_ID, '/start code_7777'));
+check(
+  calls.some((c) => String(c.payload['text'] ?? c.payload['caption']).includes('Фильм без файла')),
+  'код работает и ссылкой /start code_7777',
+);
+
+// Несуществующий код не должен молча проваливаться в обычный поиск.
+calls.length = 0;
+await bot.handleUpdate(text(GUEST_ID, '999999'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('ничего не нашлось'),
+  'по неизвестному коду отвечают честно',
+);
+
+// Код неопубликованного фильма не открывает карточку.
+await db.update(films).set({ isPublished: false }).where(eq(films.id, cardOnly!.id));
+calls.length = 0;
+await bot.handleUpdate(text(GUEST_ID, '7777'));
+check(
+  !calls.some((c) => String(c.payload['text'] ?? c.payload['caption']).includes('Фильм без файла')),
+  'код снятого с публикации фильма ничего не открывает',
+);
+
 // ── 12m. Черновики не должны утекать ──────────────────────────────
 // Лимитер к этому моменту на взводе — сбрасываем, иначе вместо ответов
 // бота проверки увидят предупреждение о флуде.
@@ -1478,8 +1599,17 @@ console.log(`\n${results.length - failed} из ${results.length} проверо�
 
 // Уборка.
 await db.delete(films).where(
-  inArray(films.fileUniqueId, [UNIQ, NO_NAME_UNIQ, 'foreign1', 'checkhidden', ...CATALOG_UNIQS]),
+  inArray(films.fileUniqueId, [
+    UNIQ,
+    NO_NAME_UNIQ,
+    'foreign1',
+    'checkhidden',
+    ATTACH_UNIQ,
+    ...CATALOG_UNIQS,
+  ]),
 );
+// Карточка без файла — по file_unique_id её не поймать, чистим по названию.
+await db.delete(films).where(eq(films.titleRu, 'Фильм без файла'));
 // user_id у запросов обнуляется при удалении юзера, поэтому чистим и по тексту:
 // иначе мусор от упавшего прогона ломает следующий.
 await db.delete(searchQueries).where(inArray(searchQueries.userId, [GUEST_ID]));
