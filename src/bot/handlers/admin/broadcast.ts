@@ -14,6 +14,7 @@ import {
 import { escapeHtml, formatDate } from '../../../lib/format.js';
 import { startBroadcast } from '../../../services/broadcast.js';
 import type { BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, idsFrom } from '../../keyboards/admin.js';
 
 export const adminBroadcast = new Composer<BotContext>();
@@ -26,7 +27,7 @@ adminBroadcast.callbackQuery(admin.broadcasts, async (ctx) => {
   ctx.session.broadcastSegment = undefined;
 
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 async function listScreen(): Promise<{ text: string; keyboard: InlineKeyboard }> {
@@ -97,7 +98,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   const broadcast = await getBroadcast(id);
   if (!broadcast) {
     const { text, keyboard } = await listScreen();
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await renderScreen(ctx, text, keyboard);
     return;
   }
 
@@ -133,7 +134,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   // должен увидеть ровно то, что получат люди.
   const payload = { parse_mode: 'HTML' as const, reply_markup: kb };
   if (fresh) await ctx.reply(lines.join('\n'), payload);
-  else await ctx.editMessageText(lines.join('\n'), payload);
+  else await renderScreen(ctx, lines.join('\n'), kb);
 }
 
 // ─── Запуск и остановка ──────────────────────────────────────────────
@@ -169,7 +170,7 @@ adminBroadcast.callbackQuery(/^a:bc4:\d+$/, async (ctx) => {
   await deleteBroadcast(idsFrom(ctx.callbackQuery.data)[0]!);
   await ctx.answerCallbackQuery('Удалил');
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 const icon = (broadcast: Broadcast): string =>

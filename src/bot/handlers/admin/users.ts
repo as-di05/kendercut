@@ -8,6 +8,7 @@ import {
 import { getUser, setBanned } from '../../../db/repositories/users.js';
 import { escapeHtml, formatDate, plural } from '../../../lib/format.js';
 import type { BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, idsFrom } from '../../keyboards/admin.js';
 
 export const adminUsers = new Composer<BotContext>();
@@ -32,7 +33,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   if (!user) {
     const message = 'Такого пользователя нет — он ещё не запускал бота.';
     if (fresh) await ctx.reply(message);
-    else await ctx.editMessageText(message);
+    else await renderScreen(ctx, message);
     return;
   }
 
@@ -73,7 +74,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
 
   const payload = { parse_mode: 'HTML' as const, reply_markup: kb };
   if (fresh) await ctx.reply(text.join('\n'), payload);
-  else await ctx.editMessageText(text.join('\n'), payload);
+  else await renderScreen(ctx, text.join('\n'), kb);
 }
 
 adminUsers.callbackQuery(/^a:ub:\d+$/, async (ctx) => {

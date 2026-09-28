@@ -14,6 +14,7 @@ import { escapeHtml, fitCaption, plural } from '../../../lib/format.js';
 import { logger } from '../../../lib/logger.js';
 import { getMovie, isTmdbConfigured, searchMovies } from '../../../services/tmdb.js';
 import type { BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, cardKeyboard, idsFrom, panelKeyboard } from '../../keyboards/admin.js';
 
 export const adminFilms = new Composer<BotContext>();
@@ -25,26 +26,21 @@ const NO_TITLE = 'Без названия';
 adminFilms.callbackQuery(admin.panel, async (ctx) => {
   await ctx.answerCallbackQuery();
   ctx.session.awaiting = undefined;
-  await ctx.editMessageText('🛠 <b>Админка</b>\n\nВыберите раздел.', {
-    parse_mode: 'HTML',
-    reply_markup: panelKeyboard(await countDrafts()),
-  });
+  await renderScreen(ctx, '🛠 <b>Админка</b>\n\nВыберите раздел.', panelKeyboard(await countDrafts()));
 });
 
 adminFilms.callbackQuery(admin.drafts, async (ctx) => {
   await ctx.answerCallbackQuery();
   const drafts = await listDrafts();
   if (drafts.length === 0) {
-    await ctx.editMessageText(
+    await renderScreen(
+      ctx,
       '📥 <b>Неоформленные</b>\n\nПусто. Залейте фильм в канал-хранилище — он появится здесь.',
-      { parse_mode: 'HTML', reply_markup: new InlineKeyboard().text('‹ Назад', admin.panel) },
+      new InlineKeyboard().text('‹ Назад', admin.panel),
     );
     return;
   }
-  await ctx.editMessageText(`📥 <b>Неоформленные</b> — ${drafts.length}`, {
-    parse_mode: 'HTML',
-    reply_markup: filmList(drafts),
-  });
+  await renderScreen(ctx, `📥 <b>Неоформленные</b> — ${drafts.length}`, filmList(drafts));
 });
 
 adminFilms.callbackQuery(admin.published, async (ctx) => {
@@ -53,9 +49,10 @@ adminFilms.callbackQuery(admin.published, async (ctx) => {
   const rows = await Promise.all(published.map((f) => getFilmRow(f.id)));
   const films = rows.filter((f): f is Film => f !== undefined);
 
-  await ctx.editMessageText(
+  await renderScreen(
+    ctx,
     films.length ? `🎬 <b>Опубликованные</b> — ${films.length}` : '🎬 Опубликованных пока нет.',
-    { parse_mode: 'HTML', reply_markup: filmList(films) },
+    filmList(films),
   );
 });
 
@@ -283,9 +280,11 @@ adminFilms.callbackQuery(/^a:del!:\d+$/, async (ctx) => {
   const [filmId] = idsFrom(ctx.callbackQuery.data);
   await deleteFilm(filmId!);
   await ctx.answerCallbackQuery('Удалён');
-  await ctx.editMessageText('🗑 Фильм удалён из каталога.', {
-    reply_markup: new InlineKeyboard().text('‹ В админку', admin.panel),
-  });
+  await renderScreen(
+    ctx,
+    '🗑 Фильм удалён из каталога.',
+    new InlineKeyboard().text('‹ В админку', admin.panel),
+  );
 });
 
 // ─── Отрисовка карточки ──────────────────────────────────────────────

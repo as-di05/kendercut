@@ -3,6 +3,7 @@ import { referralStats } from '../../db/repositories/referrals.js';
 import { config } from '../../lib/config.js';
 import { plural } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import { nav } from '../keyboards/main.js';
 
 export const inviteHandler = new Composer<BotContext>();
@@ -33,7 +34,7 @@ inviteHandler.callbackQuery(nav.invite, async (ctx) => {
   if (days > 0) kb.url('📤 Поделиться', shareLink(link)).row();
   kb.text('‹ В меню', nav.home);
 
-  await ctx.editMessageText(lines.join('\n'), { parse_mode: 'HTML', reply_markup: kb });
+  await renderScreen(ctx, lines.join('\n'), kb);
 });
 
 const inviteLink = (botUsername: string, userId: number): string =>

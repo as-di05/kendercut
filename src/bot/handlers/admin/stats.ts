@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from 'grammy';
 import { dashboard, missedQueries, topFilms } from '../../../db/repositories/analytics.js';
 import { escapeHtml } from '../../../lib/format.js';
 import type { BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin } from '../../keyboards/admin.js';
 
 export const adminStats = new Composer<BotContext>();
@@ -33,7 +34,7 @@ adminStats.callbackQuery(admin.stats, async (ctx) => {
     `Оплаченных приглашений: ${d.referralsPaid}`,
   ].join('\n');
 
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backKeyboard });
+  await renderScreen(ctx, text, backKeyboard);
 });
 
 adminStats.callbackQuery(admin.statsTop, async (ctx) => {
@@ -45,10 +46,11 @@ adminStats.callbackQuery(admin.statsTop, async (ctx) => {
       ? ['За 30 дней просмотров не было.']
       : top.map((film, i) => `${i + 1}. ${escapeHtml(film.titleRu)} — ${film.views}`);
 
-  await ctx.editMessageText(['🎬 <b>Топ за 30 дней</b>', '', ...body].join('\n'), {
-    parse_mode: 'HTML',
-    reply_markup: new InlineKeyboard().text('‹ К статистике', admin.stats),
-  });
+  await renderScreen(
+    ctx,
+    ['🎬 <b>Топ за 30 дней</b>', '', ...body].join('\n'),
+    new InlineKeyboard().text('‹ К статистике', admin.stats),
+  );
 });
 
 adminStats.callbackQuery(admin.statsMissed, async (ctx) => {
@@ -64,10 +66,11 @@ adminStats.callbackQuery(admin.statsMissed, async (ctx) => {
           ...missed.map((row) => `• ${escapeHtml(row.query)} — ${row.times}`),
         ];
 
-  await ctx.editMessageText(['🔍 <b>Пустые запросы</b>', '', ...body].join('\n'), {
-    parse_mode: 'HTML',
-    reply_markup: new InlineKeyboard().text('‹ К статистике', admin.stats),
-  });
+  await renderScreen(
+    ctx,
+    ['🔍 <b>Пустые запросы</b>', '', ...body].join('\n'),
+    new InlineKeyboard().text('‹ К статистике', admin.stats),
+  );
 });
 
 const percent = (part: number, whole: number): string =>

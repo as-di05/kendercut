@@ -1,6 +1,7 @@
 import { Composer } from 'grammy';
 import { countDrafts } from '../../../db/repositories/films.js';
 import type { BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, panelKeyboard } from '../../keyboards/admin.js';
 import { nav } from '../../keyboards/main.js';
 import { adminEdit } from './edit.js';
@@ -25,10 +26,7 @@ const guarded = adminHandler.filter((ctx): boolean => ctx.isAdmin === true);
 
 guarded.callbackQuery(nav.admin, async (ctx) => {
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText('🛠 <b>Админка</b>\n\nВыберите раздел.', {
-    parse_mode: 'HTML',
-    reply_markup: panelKeyboard(await countDrafts()),
-  });
+  await renderScreen(ctx, '🛠 <b>Админка</b>\n\nВыберите раздел.', panelKeyboard(await countDrafts()));
 });
 
 guarded.use(adminGrant);

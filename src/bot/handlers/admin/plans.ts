@@ -9,6 +9,7 @@ import {
 import { escapeHtml, plural } from '../../../lib/format.js';
 import { supportsAutoRenew } from '../../../services/payments.js';
 import type { Awaiting, BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, idsFrom, subFieldFrom, type PlanField } from '../../keyboards/admin.js';
 
 export const adminPlans = new Composer<BotContext>();
@@ -28,7 +29,7 @@ adminPlans.callbackQuery(admin.plans, async (ctx) => {
   await ctx.answerCallbackQuery();
   clear(ctx);
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 async function listScreen(): Promise<{ text: string; keyboard: InlineKeyboard }> {
@@ -67,7 +68,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   const plan = (await listPlans()).find((p) => p.id === id);
   if (!plan) {
     const { text, keyboard } = await listScreen();
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await renderScreen(ctx, text, keyboard);
     return;
   }
 
@@ -100,7 +101,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   // После ввода значения экран приходится слать заново: правим-то мы
   // сообщение админа, а не своё.
   if (fresh) await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
-  else await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+  else await renderScreen(ctx, text, kb);
 }
 
 // ─── Поля ────────────────────────────────────────────────────────────
@@ -227,7 +228,7 @@ adminPlans.callbackQuery(/^a:pl3:\d+$/, async (ctx) => {
   await deletePlan(idsFrom(ctx.callbackQuery.data)[0]!);
   await ctx.answerCallbackQuery('Удалил');
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 /** Открыли другой экран — незавершённый ввод с прошлого забываем. */

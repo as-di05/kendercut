@@ -61,6 +61,10 @@ bot.api.config.use(async (_prev, method, payload) => {
   if (breakCopyMessage && method === 'copyMessage') {
     throw new Error('Bad Request: message to copy not found');
   }
+  // Telegram не даёт править текст у сообщения-фотографии.
+  if (method === 'editMessageText' && (payload as { message_id?: number }).message_id === 777) {
+    throw new Error('Bad Request: there is no text in the message to edit');
+  }
   if (method === 'getChatMember') {
     // Бота считаем админом канала, пользователя — по переключателю.
     const isBot = (payload as { user_id: number }).user_id === 1;
@@ -171,6 +175,31 @@ const press = (userId: number, data: string): Update =>
         message_id: 1,
         date: Math.floor(Date.now() / 1000),
         chat: { id: userId, type: 'private', first_name: 'Тест' },
+        // Экраны бота — текстовые сообщения, и именно их он правит на месте.
+        text: 'экран',
+      },
+    },
+  }) as Update;
+
+/**
+ * Нажатие на кнопку под фотографией — так выглядит карточка фильма с постером.
+ * У такого сообщения нет текста, и editMessageText по нему падает:
+ * ровно на этом «Назад» и зависал.
+ */
+const pressOnPhoto = (userId: number, data: string): Update =>
+  ({
+    update_id: ++updateId,
+    callback_query: {
+      id: String(updateId),
+      from: { id: userId, is_bot: false, first_name: 'Тест' },
+      chat_instance: '1',
+      data,
+      message: {
+        message_id: 777,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: userId, type: 'private', first_name: 'Тест' },
+        photo: [{ file_id: 'AgACposter', file_unique_id: 'poster1', width: 500, height: 750 }],
+        caption: 'Карточка фильма',
       },
     },
   }) as Update;
@@ -1386,6 +1415,36 @@ await db
   .update(films)
   .set({ description: null, titleOrig: null, posterFileId: null })
   .where(eq(films.id, longFilm!.id));
+
+// ── 12o. Навигация из карточки с постером ─────────────────────────
+// Карточка фильма уходит фотографией. Кнопки под ней обязаны работать,
+// хотя править текст у фотографии Telegram не разрешает.
+await redis.del(key.rateLimit(GUEST_ID));
+
+for (const [data, expected] of [
+  ['c:back', 'Каталог'],
+  ['nav:home', 'Кинотека'],
+  ['c:new:0', 'Новинки'],
+  ['nav:subscription', 'Подписка'],
+  ['nav:profile', 'Профиль'],
+] as const) {
+  calls.length = 0;
+  await bot.handleUpdate(pressOnPhoto(GUEST_ID, data));
+
+  const shown = calls.find(
+    (c) =>
+      (c.method === 'sendMessage' || c.method === 'editMessageText') &&
+      String(c.payload['text']).includes(expected),
+  );
+  check(shown !== undefined, `кнопка ${data} работает из карточки с постером`);
+}
+
+calls.length = 0;
+await bot.handleUpdate(pressOnPhoto(GUEST_ID, 'c:back'));
+check(
+  calls.some((c) => c.method === 'deleteMessage' && c.payload['message_id'] === 777),
+  'нетекстовое сообщение убирается, а не остаётся висеть',
+);
 
 // ── 13. Права ─────────────────────────────────────────────────────
 calls.length = 0;

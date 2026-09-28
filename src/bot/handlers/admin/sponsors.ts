@@ -11,6 +11,7 @@ import { config } from '../../../lib/config.js';
 import { endOfMskDay, escapeHtml, formatDate, parseMskDate } from '../../../lib/format.js';
 import { logger } from '../../../lib/logger.js';
 import type { Awaiting, BotContext } from '../../context.js';
+import { renderScreen } from '../../screen.js';
 import { admin, idsFrom, subFieldFrom, type ChannelField } from '../../keyboards/admin.js';
 import { joinLink } from '../../keyboards/sponsor.js';
 
@@ -45,7 +46,7 @@ adminSponsors.callbackQuery(admin.sponsors, async (ctx) => {
   await ctx.answerCallbackQuery();
   clear(ctx);
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 async function listScreen(): Promise<{ text: string; keyboard: InlineKeyboard }> {
@@ -92,7 +93,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
   const channel = await getChannel(id);
   if (!channel) {
     const { text, keyboard } = await listScreen();
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    await renderScreen(ctx, text, keyboard);
     return;
   }
 
@@ -126,7 +127,7 @@ async function renderCard(ctx: BotContext, id: number, fresh = false): Promise<v
 
   // После ввода значения правим не своё сообщение, а отвечаем новым.
   if (fresh) await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
-  else await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+  else await renderScreen(ctx, text, kb);
 }
 
 /** Включённый канал может всё равно не попадать в гейт — объясняем, почему. */
@@ -322,5 +323,5 @@ adminSponsors.callbackQuery(/^a:sp3:\d+$/, async (ctx) => {
   await deleteChannel(idsFrom(ctx.callbackQuery.data)[0]!);
   await ctx.answerCallbackQuery('Удалил');
   const { text, keyboard } = await listScreen();
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });

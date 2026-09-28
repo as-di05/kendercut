@@ -2,16 +2,14 @@ import { Composer } from 'grammy';
 import { getActiveSubscription } from '../../db/repositories/subscriptions.js';
 import { escapeHtml, formatDate, plural } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import { backToMenu, nav } from '../keyboards/main.js';
 
 export const menuHandler = new Composer<BotContext>();
 
 menuHandler.callbackQuery(nav.profile, async (ctx) => {
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(await profileText(ctx), {
-    parse_mode: 'HTML',
-    reply_markup: backToMenu,
-  });
+  await renderScreen(ctx, await profileText(ctx), backToMenu);
 });
 
 async function profileText(ctx: BotContext): Promise<string> {

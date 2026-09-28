@@ -12,6 +12,7 @@ import type { FilmCard } from '../../db/repositories/films.js';
 import { escapeHtml, fitCaption } from '../../lib/format.js';
 import { serveFilm } from './watch.js';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import {
   PAGE_SIZE,
   cat,
@@ -38,14 +39,15 @@ async function renderRoot(ctx: BotContext): Promise<void> {
   ctx.session.awaiting = undefined;
 
   if ((await countPublished()) === 0) {
-    await ctx.editMessageText('🎬 <b>Каталог</b>\n\nПока пусто. Скоро здесь появятся фильмы.', {
-      parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard().text('‹ В меню', nav.home),
-    });
+    await renderScreen(
+      ctx,
+      '🎬 <b>Каталог</b>\n\nПока пусто. Скоро здесь появятся фильмы.',
+      new InlineKeyboard().text('‹ В меню', nav.home),
+    );
     return;
   }
 
-  await ctx.editMessageText(ROOT_TEXT, { parse_mode: 'HTML', reply_markup: catalogRoot });
+  await renderScreen(ctx, ROOT_TEXT, catalogRoot);
 }
 
 // Кнопка-заглушка: счётчик страниц и погашенные стрелки.
@@ -65,10 +67,11 @@ async function renderFresh(ctx: BotContext, page: number): Promise<void> {
   ]);
 
   ctx.session.back = cat.fresh(page);
-  await ctx.editMessageText(`🆕 <b>Новинки</b> — ${total}`, {
-    parse_mode: 'HTML',
-    reply_markup: filmListKeyboard(films, page, total, cat.fresh, cat.home),
-  });
+  await renderScreen(
+    ctx,
+    `🆕 <b>Новинки</b> — ${total}`,
+    filmListKeyboard(films, page, total, cat.fresh, cat.home),
+  );
 }
 
 // ─── Жанры ───────────────────────────────────────────────────────────
@@ -78,17 +81,15 @@ catalogHandler.callbackQuery(cat.genres, async (ctx) => {
   const genres = await listGenresWithFilms();
 
   if (genres.length === 0) {
-    await ctx.editMessageText('🎭 <b>Жанры</b>\n\nУ фильмов пока не проставлены жанры.', {
-      parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard().text('‹ Назад', cat.home),
-    });
+    await renderScreen(
+      ctx,
+      '🎭 <b>Жанры</b>\n\nУ фильмов пока не проставлены жанры.',
+      new InlineKeyboard().text('‹ Назад', cat.home),
+    );
     return;
   }
 
-  await ctx.editMessageText('🎭 <b>Жанры</b>', {
-    parse_mode: 'HTML',
-    reply_markup: genresKeyboard(genres),
-  });
+  await renderScreen(ctx, '🎭 <b>Жанры</b>', genresKeyboard(genres));
 });
 
 catalogHandler.callbackQuery(/^c:g:\d+:\d+$/, async (ctx) => {
@@ -104,10 +105,11 @@ async function renderGenre(ctx: BotContext, genreId: number, page: number): Prom
   ]);
 
   ctx.session.back = cat.genre(genreId, page);
-  await ctx.editMessageText(`🎭 Найдено: ${total}`, {
-    parse_mode: 'HTML',
-    reply_markup: filmListKeyboard(films, page, total, (p) => cat.genre(genreId, p), cat.genres),
-  });
+  await renderScreen(
+    ctx,
+    `🎭 Найдено: ${total}`,
+    filmListKeyboard(films, page, total, (p) => cat.genre(genreId, p), cat.genres),
+  );
 }
 
 // ─── Случайный фильм ─────────────────────────────────────────────────
@@ -116,9 +118,7 @@ catalogHandler.callbackQuery(cat.random, async (ctx) => {
   await ctx.answerCallbackQuery();
   const film = await randomPublished();
   if (!film) {
-    await ctx.editMessageText('Каталог пуст.', {
-      reply_markup: new InlineKeyboard().text('‹ Назад', cat.home),
-    });
+    await renderScreen(ctx, 'Каталог пуст.', new InlineKeyboard().text('‹ Назад', cat.home));
     return;
   }
   ctx.session.back = cat.home;

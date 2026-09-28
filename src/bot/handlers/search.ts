@@ -3,6 +3,7 @@ import { logSearch } from '../../db/repositories/analytics.js';
 import { searchFilms } from '../../db/repositories/films.js';
 import { escapeHtml, plural } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import { cat, filmCardKeyboard } from '../keyboards/catalog.js';
 import { nav } from '../keyboards/main.js';
 
@@ -21,10 +22,7 @@ const PROMPT = [
 searchHandler.callbackQuery(nav.search, async (ctx) => {
   await ctx.answerCallbackQuery();
   ctx.session.awaiting = 'search';
-  await ctx.editMessageText(PROMPT, {
-    parse_mode: 'HTML',
-    reply_markup: new InlineKeyboard().text('‹ В меню', nav.home),
-  });
+  await renderScreen(ctx, PROMPT, new InlineKeyboard().text('‹ В меню', nav.home));
 });
 
 /**

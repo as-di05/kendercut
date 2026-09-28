@@ -4,6 +4,7 @@ import { getActiveSubscription } from '../../db/repositories/subscriptions.js';
 import { formatDate, plural } from '../../lib/format.js';
 import { supportsAutoRenew } from '../../services/payments.js';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import { nav } from '../keyboards/main.js';
 
 export const subscriptionHandler = new Composer<BotContext>();
@@ -29,7 +30,7 @@ function planButtons(plans: Plan[]): InlineKeyboard {
 subscriptionHandler.callbackQuery(nav.subscription, async (ctx) => {
   await ctx.answerCallbackQuery();
   const { text, keyboard } = await subscriptionScreen(ctx.user.tgId);
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  await renderScreen(ctx, text, keyboard);
 });
 
 /** Экран подписки: текущий статус плюс тарифы. */

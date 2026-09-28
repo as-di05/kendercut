@@ -1,5 +1,6 @@
 import { Composer } from 'grammy';
 import type { BotContext } from '../context.js';
+import { renderScreen } from '../screen.js';
 import { cat } from '../keyboards/catalog.js';
 import { mainMenu, nav } from '../keyboards/main.js';
 import { openFilmCard } from './catalog.js';
@@ -37,10 +38,7 @@ startHandler.command('start', async (ctx) => {
 startHandler.callbackQuery(nav.home, async (ctx) => {
   ctx.session.awaiting = undefined;
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(GREETING, {
-    parse_mode: 'HTML',
-    reply_markup: mainMenu(ctx.isAdmin),
-  });
+  await renderScreen(ctx, GREETING, mainMenu(ctx.isAdmin));
 });
 
 function parseFilmDeeplink(payload: string): number | undefined {
