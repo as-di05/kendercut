@@ -7,6 +7,7 @@ import {
   searchQueries,
   sponsorPasses,
   subscriptions,
+  userDays,
   users,
   views,
 } from '../schema.js';
@@ -58,6 +59,65 @@ export async function dashboard(): Promise<Dashboard> {
   `);
 
   return row!;
+}
+
+export type UserTotals = {
+  /** Сколько уникальных людей вообще запускали бота. */
+  total: number;
+  activeDay: number;
+  activeWeek: number;
+  activeMonth: number;
+  withSubscription: number;
+  banned: number;
+};
+
+export async function userTotals(): Promise<UserTotals> {
+  const [row] = await db.execute<UserTotals>(sql`
+    select
+      (select count(*)::int from ${users}) as total,
+      (select count(distinct ${userDays.userId})::int from ${userDays}
+        where ${userDays.day} >= (now() at time zone 'Europe/Moscow')::date) as "activeDay",
+      (select count(distinct ${userDays.userId})::int from ${userDays}
+        where ${userDays.day} > (now() at time zone 'Europe/Moscow')::date - 7) as "activeWeek",
+      (select count(distinct ${userDays.userId})::int from ${userDays}
+        where ${userDays.day} > (now() at time zone 'Europe/Moscow')::date - 30) as "activeMonth",
+      (select count(*)::int from ${subscriptions}
+        where ${subscriptions.isActive} and ${subscriptions.expiresAt} > now()) as "withSubscription",
+      (select count(*)::int from ${users} where ${users.isBanned}) as banned
+  `);
+
+  return row!;
+}
+
+export type DayRow = { day: string; active: number; joined: number };
+
+/**
+ * Активность по дням за последние `days` суток, включая сегодня.
+ *
+ * Дни берём из generate_series, а не из таблицы: иначе день без единого
+ * захода просто выпал бы из отчёта, и провал выглядел бы как его отсутствие.
+ */
+export async function dailyUsers(days = 10): Promise<DayRow[]> {
+  const rows = await db.execute<DayRow>(sql`
+    with span as (
+      select generate_series(
+        -- Приведение обязательно: без него Postgres считает параметр датой,
+        -- «date - date» даёт целое, и generate_series такой тип не принимает.
+        (now() at time zone 'Europe/Moscow')::date - (${days - 1})::int,
+        (now() at time zone 'Europe/Moscow')::date,
+        interval '1 day'
+      )::date as day
+    )
+    select
+      to_char(span.day, 'DD.MM') as day,
+      (select count(*)::int from ${userDays} d where d.day = span.day) as active,
+      (select count(*)::int from ${users} u
+        where (u.created_at at time zone 'Europe/Moscow')::date = span.day) as joined
+    from span
+    order by span.day desc
+  `);
+
+  return [...rows];
 }
 
 export type TopFilm = { id: number; titleRu: string; views: number };

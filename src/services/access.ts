@@ -22,8 +22,16 @@ export type AccessResult =
  *
  * Порядок: админ → подписка → гейт спонсоров → дневной лимит бесплатных.
  */
-export async function checkAccess(api: Api, userId: number): Promise<AccessResult> {
-  if (isAdmin(userId)) return { allowed: true, reason: 'admin' };
+export async function checkAccess(
+  api: Api,
+  userId: number,
+  /**
+   * Кто админ, решает auth-middleware: он знает и числовой id, и юзернейм.
+   * Выводить это заново здесь значило бы завести вторую версию правила.
+   */
+  admin = false,
+): Promise<AccessResult> {
+  if (admin || isAdmin(userId)) return { allowed: true, reason: 'admin' };
 
   const subscription = await getActiveSubscription(userId);
   if (subscription) {

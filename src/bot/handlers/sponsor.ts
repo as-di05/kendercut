@@ -30,7 +30,7 @@ sponsorHandler.callbackQuery(/^g:r:(\d+)$/, async (ctx) => {
   const filmId = Number(ctx.match[1]);
   await forgetGateResult(ctx.user.tgId);
 
-  const access = await checkAccess(ctx.api, ctx.user.tgId);
+  const access = await checkAccess(ctx.api, ctx.user.tgId, ctx.isAdmin);
   if (!access.allowed && access.reason === 'sponsor_required') {
     await ctx.answerCallbackQuery({ text: missingText(access.missing), show_alert: true });
     return;

@@ -3,6 +3,7 @@ import {
   bigint,
   customType,
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -40,6 +41,25 @@ export const users = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('users_referrer_idx').on(t.referrerId)],
+);
+
+/**
+ * Отметка «этот человек заходил в этот день».
+ *
+ * Без неё посуточную активность не посчитать: last_seen_at перезаписывается,
+ * и зашедший в понедельник и в пятницу виден только в пятнице. Одна строка
+ * на пару «день + пользователь», вставка идёт с ON CONFLICT DO NOTHING.
+ */
+export const userDays = pgTable(
+  'user_days',
+  {
+    /** Дата по Москве: в этом же поясе бот показывает все остальные даты. */
+    day: date('day').notNull(),
+    userId: tgId('user_id')
+      .notNull()
+      .references(() => users.tgId, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.userId] })],
 );
 
 // ─── Фильмы ──────────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ export const admin = {
 
   stats: 'a:st',
   statsTop: 'a:st:top',
+  statsUsers: 'a:st:users',
   statsMissed: 'a:st:miss',
 
   broadcasts: 'a:bc',

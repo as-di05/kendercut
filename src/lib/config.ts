@@ -35,6 +35,22 @@ const schema = z.object({
   BOT_TOKEN: required('обязателен, возьмите у @BotFather'),
   ADMIN_IDS: idList,
 
+  /**
+   * Админы по юзернейму — чтобы пустить в админку, не выясняя числовой id.
+   * Удобно, но менее надёжно: юзернейм можно сменить, а освободившийся
+   * займёт кто угодно. Уведомления о поломках и новых файлах уходят только
+   * по ADMIN_IDS — написать человеку по юзернейму Telegram не позволяет.
+   */
+  ADMIN_USERNAMES: z
+    .string()
+    .default('')
+    .transform((raw) =>
+      raw
+        .split(',')
+        .map((part) => part.trim().replace(/^@/, '').toLowerCase())
+        .filter(Boolean),
+    ),
+
   // Канал-хранилище. Появится на этапе 3, поэтому пока не обязателен.
   STORAGE_CHANNEL_ID: z.coerce.number().int().optional(),
 
@@ -121,5 +137,7 @@ export const config = Object.freeze(parsed.data);
 export type Config = typeof config;
 
 export const isProduction = config.NODE_ENV === 'production';
-export const isAdmin = (userId: number | undefined): boolean =>
-  userId !== undefined && config.ADMIN_IDS.includes(userId);
+/** Юзернейм сверяем без регистра: в Telegram «AS_DI05» и «as_di05» — один человек. */
+export const isAdmin = (userId: number | undefined, username?: string | undefined): boolean =>
+  (userId !== undefined && config.ADMIN_IDS.includes(userId)) ||
+  (username !== undefined && config.ADMIN_USERNAMES.includes(username.toLowerCase()));

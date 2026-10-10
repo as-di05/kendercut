@@ -4,9 +4,9 @@
  * Запуск: npm run bot:check
  */
 /* eslint-disable no-console */
-import { and, eq, inArray, isNull, like } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, like, lt } from 'drizzle-orm';
 import type { Update } from 'grammy/types';
-import { config } from '../lib/config.js';
+import { config, isAdmin } from '../lib/config.js';
 import { alertAdmins, useApiForAlerts } from '../lib/alerts.js';
 import { connectRedis, key, redis } from '../lib/redis.js';
 import { db, sql } from '../db/index.js';
@@ -19,6 +19,7 @@ import {
   plans as plansTable,
   broadcasts,
   referrals,
+  userDays,
   searchQueries,
   sponsorChannels,
   sponsorPasses,
@@ -36,7 +37,7 @@ import { createFilmCard } from '../db/repositories/films.js';
 import { referralStats } from '../db/repositories/referrals.js';
 import { getBroadcast, listBroadcasts } from '../db/repositories/broadcasts.js';
 import { run as runBroadcast } from '../services/broadcast.js';
-import { dashboard } from '../db/repositories/analytics.js';
+import { dailyUsers, dashboard, userTotals } from '../db/repositories/analytics.js';
 import { getUser } from '../db/repositories/users.js';
 import { sweepDeletions } from '../jobs/delete-delivered.js';
 import { sweepExpired, sweepReminders } from '../jobs/subscriptions.js';
@@ -90,6 +91,26 @@ bot.api.config.use(async (_prev, method, payload) => {
 });
 
 await bot.init();
+
+/**
+ * Уборка перед стартом, а не только после.
+ * Прогон может упасть посередине — тогда в Redis остаются счётчики лимита
+ * и кэш гейта тестовых пользователей, а в базе тестовый канал. Следующий
+ * прогон на этом мусоре падает в неожиданных местах, и искать причину
+ * приходится не там, где она есть.
+ */
+const stale = await redis.keys('ff:*:999*');
+if (stale.length > 0) await redis.del(...stale);
+
+// Верхняя граница обязательна. Тестовые id начинаются с 999 000 000,
+// но настоящие telegram-id давно перевалили за девять миллиардов —
+// открытый диапазон «всё, что больше» снёс бы живых пользователей.
+await db.delete(users).where(and(gte(users.tgId, 999_000_000), lt(users.tgId, 999_010_000)));
+await db.delete(payments).where(like(payments.telegramPaymentChargeId, 'test_charge%'));
+await db.delete(sponsorChannels).where(eq(sponsorChannels.chatId, -1_009_000_001));
+await db.delete(films).where(like(films.titleRu, 'Фильм без файла%'));
+// user_id у запросов обнуляется вместе с юзером, так что ловим по тексту.
+await db.delete(searchQueries).where(eq(searchQueries.query, 'фильм которого нет в базе'));
 
 /**
  * Проверки гейта исходят из того, что каналов спонсоров нет.
@@ -1259,6 +1280,38 @@ check(
   String(last('editMessageText')?.payload['text']).includes('Пустые запросы'),
   'открывается отчёт «искали, но не нашли»',
 );
+
+// ── 12i2. Статистика по пользователям ─────────────────────────────
+calls.length = 0;
+await bot.handleUpdate(press(ADMIN_ID, 'a:st:users'));
+const usersScreen = String(last('editMessageText')?.payload['text'] ?? last('sendMessage')?.payload['text']);
+check(usersScreen.includes('Запустили бота'), 'виден счётчик запустивших бота');
+check(usersScreen.includes('Активны сегодня'), 'видна активность за сегодня');
+check(usersScreen.includes('Последние 10 дней'), 'есть разбивка по дням');
+check((usersScreen.match(/\n\d{2}\.\d{2}/g) ?? []).length === 10, 'в таблице ровно 10 дней');
+
+const totals = await userTotals();
+check(totals.total > 0, 'запрос сводки считает пользователей');
+check(
+  usersScreen.includes(`Запустили бота: <b>${totals.total}</b>`),
+  'число в тексте совпадает с базой',
+);
+
+// Заход отмечается в посуточной таблице, повторный — не дублируется.
+const marks = await db.select().from(userDays).where(eq(userDays.userId, GUEST_ID));
+check(marks.length === 1, 'заход отмечен ровно один раз за день');
+check(totals.activeDay >= 1, 'сегодняшняя активность не нулевая');
+
+// Пустой день не должен выпадать из отчёта.
+const series = await dailyUsers(10);
+check(series.length === 10, 'в отчёте всегда 10 строк, даже если в день никого не было');
+
+// Админ по юзернейму: регистр не должен иметь значения.
+if (config.ADMIN_USERNAMES.length > 0) {
+  const name = config.ADMIN_USERNAMES[0]!;
+  check(isAdmin(undefined, name.toUpperCase()), 'юзернейм админа опознаётся в верхнем регистре');
+  check(isAdmin(undefined, `${name}x`) === false, 'похожий юзернейм админом не делает');
+}
 
 // ── 12j. Рассылка ─────────────────────────────────────────────────
 calls.length = 0;

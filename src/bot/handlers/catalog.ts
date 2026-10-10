@@ -159,7 +159,7 @@ export async function openFilmOrGate(ctx: BotContext, filmId: number): Promise<b
   //
   // Гейт показываем и фильму без файла: за кодом стоит прежде всего
   // название с описанием, а видео — то, что добавляется к ним.
-  const access = await checkAccess(ctx.api, ctx.user.tgId);
+  const access = await checkAccess(ctx.api, ctx.user.tgId, ctx.isAdmin);
   if (!access.allowed && access.reason === 'sponsor_required') {
     await denied(ctx, film.id, access, false, 'reveal');
     return true;

@@ -1,6 +1,6 @@
 import { eq, sql as raw } from 'drizzle-orm';
 import { db } from '../index.js';
-import { users } from '../schema.js';
+import { userDays, users } from '../schema.js';
 
 export type User = typeof users.$inferSelect;
 
@@ -38,6 +38,18 @@ export async function upsertUser(input: UpsertInput): Promise<User> {
 
   // returning() на upsert всегда отдаёт строку.
   return user!;
+}
+
+/**
+ * Отмечает, что человек заходил сегодня — по московской дате.
+ * Повторный заход за тот же день ничего не делает: на паре «день + юзер»
+ * стоит первичный ключ, и вставка просто упирается в него.
+ */
+export async function markActiveToday(tgId: number): Promise<void> {
+  await db
+    .insert(userDays)
+    .values({ day: raw`(now() at time zone 'Europe/Moscow')::date` as unknown as string, userId: tgId })
+    .onConflictDoNothing();
 }
 
 export async function getUser(tgId: number): Promise<User | undefined> {

@@ -1,5 +1,11 @@
 import { Composer, InlineKeyboard } from 'grammy';
-import { dashboard, missedQueries, topFilms } from '../../../db/repositories/analytics.js';
+import {
+  dailyUsers,
+  dashboard,
+  missedQueries,
+  topFilms,
+  userTotals,
+} from '../../../db/repositories/analytics.js';
 import { escapeHtml } from '../../../lib/format.js';
 import type { BotContext } from '../../context.js';
 import { renderScreen } from '../../screen.js';
@@ -8,6 +14,8 @@ import { admin } from '../../keyboards/admin.js';
 export const adminStats = new Composer<BotContext>();
 
 const backKeyboard = new InlineKeyboard()
+  .text('👥 Пользователи', admin.statsUsers)
+  .row()
   .text('🎬 Топ фильмов', admin.statsTop)
   .text('🔍 Не нашли', admin.statsMissed)
   .row()
@@ -35,6 +43,45 @@ adminStats.callbackQuery(admin.stats, async (ctx) => {
   ].join('\n');
 
   await renderScreen(ctx, text, backKeyboard);
+});
+
+adminStats.callbackQuery(admin.statsUsers, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const [totals, days] = await Promise.all([userTotals(), dailyUsers(10)]);
+
+  // Моноширинный блок: иначе колонки разъезжаются и таблицу не прочитать.
+  const table = [
+    'дата    заходили  новые',
+    ...days.map(
+      (d) => `${d.day}   ${String(d.active).padStart(6)}  ${String(d.joined).padStart(5)}`,
+    ),
+  ].join('\n');
+
+  const text = [
+    '👥 <b>Пользователи</b>',
+    '',
+    `Запустили бота: <b>${totals.total}</b>`,
+    `С подпиской: ${totals.withSubscription}`,
+    totals.banned > 0 ? `Заблокированы: ${totals.banned}` : undefined,
+    '',
+    `Активны сегодня: <b>${totals.activeDay}</b>`,
+    `За 7 дней: ${totals.activeWeek}`,
+    `За 30 дней: ${totals.activeMonth}`,
+    '',
+    '<b>Последние 10 дней</b>',
+    `<pre>${table}</pre>`,
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n');
+
+  await renderScreen(
+    ctx,
+    text,
+    new InlineKeyboard()
+      .text('🔄 Обновить', admin.statsUsers)
+      .row()
+      .text('‹ К статистике', admin.stats),
+  );
 });
 
 adminStats.callbackQuery(admin.statsTop, async (ctx) => {

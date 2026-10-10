@@ -1,7 +1,7 @@
 import type { Middleware, NextFunction } from 'grammy';
 import { isAdmin } from '../../lib/config.js';
 import { logger } from '../../lib/logger.js';
-import { upsertUser } from '../../db/repositories/users.js';
+import { markActiveToday, upsertUser } from '../../db/repositories/users.js';
 import type { BotContext } from '../context.js';
 
 /**
@@ -20,7 +20,13 @@ export function auth(): Middleware<BotContext> {
       firstName: from.first_name,
       referrerId: extractReferrer(ctx),
     });
-    ctx.isAdmin = isAdmin(from.id);
+    ctx.isAdmin = isAdmin(from.id, from.username);
+
+    // Отметка для посуточной статистики. Не ждём её: цифра в отчёте
+    // не стоит того, чтобы из-за неё задерживался ответ человеку.
+    void markActiveToday(from.id).catch((err) =>
+      logger.debug({ err, user: from.id }, 'не отметили активность'),
+    );
 
     if (ctx.user.isBanned) {
       logger.debug({ user: from.id }, 'забаненный пользователь, апдейт проигнорирован');

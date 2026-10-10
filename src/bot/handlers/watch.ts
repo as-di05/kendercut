@@ -52,7 +52,7 @@ export async function serveFilm(
     return;
   }
 
-  const access = await checkAccess(ctx.api, ctx.user.tgId);
+  const access = await checkAccess(ctx.api, ctx.user.tgId, ctx.isAdmin);
 
   if (!access.allowed) {
     await denied(ctx, filmId, access, fromGateCheck);
