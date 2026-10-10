@@ -12,6 +12,8 @@ export const cat = {
   random: 'c:rnd',
   /** Возврат к списку, из которого открыли карточку. Адрес лежит в сессии. */
   back: 'c:back',
+  /** Возврат к результатам поиска: запрос помнит сессия. */
+  searchResults: 'c:s',
   watch: (filmId: number) => `c:w:${filmId}`,
   noop: 'c:noop',
 } as const;
@@ -58,8 +60,20 @@ export function filmListKeyboard(
   return kb.text('‹ Назад', backLink);
 }
 
-export const filmCardKeyboard = (filmId: number): InlineKeyboard =>
-  new InlineKeyboard().text('▶️ Смотреть', cat.watch(filmId)).row().text('‹ Назад', cat.back);
+/**
+ * Кнопка «Смотреть» появляется только когда есть что смотреть.
+ * У карточки, заведённой раньше видео, её быть не должно: нажатие на неё
+ * вело бы в тупик, а сама кнопка обещала бы то, чего пока нет.
+ */
+export const filmCardKeyboard = (
+  filmId: number,
+  backTo: string = cat.back,
+  hasFile = true,
+): InlineKeyboard => {
+  const kb = new InlineKeyboard();
+  if (hasFile) kb.text('▶️ Смотреть', cat.watch(filmId)).row();
+  return kb.text('‹ Назад', backTo);
+};
 
 export const genresKeyboard = (
   genres: { id: number; nameRu: string; count: number }[],

@@ -32,6 +32,7 @@ import {
 } from '../db/repositories/subscriptions.js';
 import { listActivePlans, listPlans } from '../db/repositories/catalog.js';
 import { getChannelByChatId } from '../db/repositories/sponsors.js';
+import { createFilmCard } from '../db/repositories/films.js';
 import { referralStats } from '../db/repositories/referrals.js';
 import { getBroadcast, listBroadcasts } from '../db/repositories/broadcasts.js';
 import { run as runBroadcast } from '../services/broadcast.js';
@@ -553,9 +554,43 @@ check(
 // ── 11. Поиск ─────────────────────────────────────────────────────
 calls.length = 0;
 await bot.handleUpdate(text(GUEST_ID, 'Тестовый фильм 4'));
+const exactHit = last('sendMessage');
 check(
-  String(last('sendMessage')?.payload['text']).includes('Тестовый фильм 4'),
+  buttons(exactHit?.payload).some((b) => b.startsWith('Тестовый фильм 4')),
   'поиск находит по точному названию',
+);
+// Единственное совпадение — такой же список, а не урезанная карточка:
+// раньше для него слали голое название с кнопкой «Смотреть».
+check(
+  !buttons(exactHit?.payload).some((b) => b.includes('Смотреть')),
+  'единственный результат тоже список, без кнопки «Смотреть»',
+);
+
+// Название в списке — кнопка, по ней открывается полная карточка.
+const singleId = Number(
+  (
+    (exactHit?.payload['reply_markup'] as { inline_keyboard: { callback_data: string }[][] })
+      .inline_keyboard[0]?.[0]?.callback_data ?? ''
+  ).split(':')[2],
+);
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:f:${singleId}`));
+const opened = last('sendMessage');
+check(
+  String(opened?.payload['text']).includes('Тестовый фильм 4'),
+  'по названию из списка открывается карточка',
+);
+check(
+  buttons(opened?.payload).some((b) => b.includes('Смотреть')),
+  'и уже в карточке есть «Смотреть»',
+);
+
+// «Назад» из такой карточки возвращает к результатам, а не в корень каталога.
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, 'c:s'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('по запросу'),
+  'из карточки возвращаемся к результатам поиска',
 );
 
 calls.length = 0;
@@ -1349,18 +1384,18 @@ await bot.handleUpdate(text(ADMIN_ID, 'Фильм без файла'));
 const cardOnly = await db.query.films.findFirst({ where: eq(films.titleRu, 'Фильм без файла') });
 check(cardOnly !== undefined, 'карточка заводится без файла');
 check(cardOnly?.storageMessageId === null, 'у неё нет координат поста');
-check(/^\d{4,6}$/.test(cardOnly?.code ?? ''), `код выдан сразу: ${cardOnly?.code}`);
+check(/^\d{3,6}$/.test(cardOnly?.code ?? ''), `код выдан сразу: ${cardOnly?.code}`);
 
-// Публиковать нечего, пока нет файла.
+// Публиковать без файла можно: код уходит в рекламу заранее.
 calls.length = 0;
 await bot.handleUpdate(press(ADMIN_ID, `a:pub1:${cardOnly!.id}`));
 check(
-  String(last('answerCallbackQuery')?.payload['text']).includes('привяжите файл'),
-  'без файла публиковать не дают',
+  (await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) }))?.isPublished === true,
+  'карточка публикуется и без файла',
 );
 check(
-  (await db.query.films.findFirst({ where: eq(films.id, cardOnly!.id) }))?.isPublished === false,
-  'и карточка действительно осталась неопубликованной',
+  String(last('answerCallbackQuery')?.payload['text']).includes('без файла'),
+  'админу видно, что опубликовано без файла',
 );
 
 // Код меняется вручную, занятый — отклоняется.
@@ -1444,6 +1479,105 @@ check(
   'по неизвестному коду отвечают честно',
 );
 
+// Карточка без файла: зрителю «скоро», подписываться не за что.
+const SOON_CODE = '7001';
+const soonFilm = await createFilmCard('Фильм без файла — скоро');
+await db.update(films).set({ code: SOON_CODE, isPublished: true }).where(eq(films.id, soonFilm.id));
+
+await redis.del(key.rateLimit(GUEST_ID));
+calls.length = 0;
+await bot.handleUpdate(text(GUEST_ID, SOON_CODE));
+const soonCard = last('sendMessage');
+check(
+  String(soonCard?.payload['text']).includes('Фильм без файла — скоро'),
+  'карточка без файла открывается по коду',
+);
+check(
+  String(soonCard?.payload['text']).includes('Видео скоро добавим'),
+  'в ней сказано, что видео будет позже',
+);
+check(
+  !buttons(soonCard?.payload).some((b) => b.includes('Смотреть')),
+  'кнопки «Смотреть» у неё нет — нажимать некуда',
+);
+
+// Старая кнопка из прошлого сообщения всё равно не должна ничего отдать.
+calls.length = 0;
+await bot.handleUpdate(press(GUEST_ID, `c:w:${soonFilm.id}`));
+check(
+  String(last('sendMessage')?.payload['text']).includes('скоро появится'),
+  'прямое «Смотреть» по такому фильму отвечает «скоро появится»',
+);
+check(!calls.some((c) => c.method === 'copyMessage'), 'файл при этом не отправляется');
+
+// Код с включённым гейтом: сначала каналы, карточка потом.
+await bot.handleUpdate(botPromoted(PARTNER_CHAT, 'Канал партнёра', 'administrator'));
+const gateChannel = await getChannelByChatId(PARTNER_CHAT);
+await db
+  .update(sponsorChannels)
+  .set({ isActive: true, startsAt: null, endsAt: null })
+  .where(eq(sponsorChannels.id, gateChannel!.id));
+
+// Нужен человек без подписки: подписчику гейт не положен по определению.
+const CODE_ID = 999_000_013;
+await bot.handleUpdate(command(CODE_ID, '/start'));
+
+sponsorMember = false;
+await redis.del(key.sponsorCheck(CODE_ID), key.rateLimit(CODE_ID));
+await db.update(films).set({ isPublished: true }).where(eq(films.id, cardOnly!.id));
+
+calls.length = 0;
+await bot.handleUpdate(text(CODE_ID, '7777'));
+const gateFirst = last('sendMessage');
+check(
+  String(gateFirst?.payload['text']).includes('Подпишитесь на каналы'),
+  'по коду сразу показывается гейт, а не карточка',
+);
+// Главное в этом экране: название не раскрывается. Узнать, что за фильм,
+// и есть та награда, ради которой человек подписывается.
+check(
+  !String(gateFirst?.payload['text']).includes('Фильм без файла'),
+  'в гейте название фильма не раскрыто',
+);
+check(
+  String(gateFirst?.payload['text']).includes('скрыт'),
+  'и прямо сказано, что фильм скрыт',
+);
+check(
+  buttons(gateFirst?.payload).some((b) => b.includes('Проверить')),
+  'и кнопка «Проверить» на месте',
+);
+
+// Подписался — показываем карточку: название, описание и «Смотреть».
+sponsorMember = true;
+calls.length = 0;
+await bot.handleUpdate(press(CODE_ID, `g:r:${cardOnly!.id}`));
+const revealed = last('sendMessage');
+check(
+  String(revealed?.payload['text']).includes('Фильм без файла'),
+  'после подписки открывается название с описанием',
+);
+check(
+  buttons(revealed?.payload).some((b) => b.includes('Смотреть')),
+  'у фильма с файлом снизу появляется «Смотреть»',
+);
+check(
+  !calls.some((c) => c.method === 'copyMessage'),
+  'сам файл при этом не отправляется — только по кнопке',
+);
+
+// И уже кнопка отдаёт файл.
+calls.length = 0;
+await bot.handleUpdate(press(CODE_ID, `c:w:${cardOnly!.id}`));
+check(calls.some((c) => c.method === 'copyMessage'), 'по «Смотреть» фильм уходит');
+
+// Гейт выключаем обратно, дальше проверки его не ждут.
+await db
+  .update(sponsorChannels)
+  .set({ isActive: false })
+  .where(eq(sponsorChannels.id, gateChannel!.id));
+await redis.del(key.sponsorCheck(CODE_ID));
+
 // Код неопубликованного фильма не открывает карточку.
 await db.update(films).set({ isPublished: false }).where(eq(films.id, cardOnly!.id));
 calls.length = 0;
@@ -1452,6 +1586,51 @@ check(
   !calls.some((c) => String(c.payload['text'] ?? c.payload['caption']).includes('Фильм без файла')),
   'код снятого с публикации фильма ничего не открывает',
 );
+
+// ── 12q. Мелочи, найденные ревизией ───────────────────────────────
+await redis.del(key.rateLimit(GUEST_ID));
+
+// «Назад» из карточки к результатам поиска должен убирать саму карточку,
+// иначе постер остаётся висеть над списком.
+calls.length = 0;
+await bot.handleUpdate(text(GUEST_ID, 'Тестовый фильм'));
+calls.length = 0;
+await bot.handleUpdate(pressOnPhoto(GUEST_ID, 'c:s'));
+check(
+  calls.some((c) => c.method === 'deleteMessage' && c.payload['message_id'] === 777),
+  'возврат к результатам убирает карточку с постером',
+);
+check(
+  String(last('sendMessage')?.payload['text']).includes('по запросу'),
+  'и показывает список заново',
+);
+
+// Диплинк на несуществующий код не должен молча приводить в меню.
+calls.length = 0;
+await bot.handleUpdate(command(GUEST_ID, '/start code_999999'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('больше недоступен'),
+  'ссылка с неизвестным кодом честно отвечает',
+);
+
+// Реферальный диплинк не должен принимать за код или фильм.
+calls.length = 0;
+await bot.handleUpdate(command(GUEST_ID, `/start ref_${ADMIN_ID}`));
+check(
+  String(last('sendMessage')?.payload['text']).includes('Кинотека'),
+  'реферальная ссылка по-прежнему открывает меню',
+);
+
+// В режиме привязки файла текст не должен проваливаться в поиск.
+await redis.del(key.rateLimit(ADMIN_ID));
+await bot.handleUpdate(press(ADMIN_ID, `a:att:${cardOnly!.id}`));
+calls.length = 0;
+await bot.handleUpdate(text(ADMIN_ID, 'какой-то текст'));
+check(
+  String(last('sendMessage')?.payload['text']).includes('пересланный пост'),
+  'в режиме привязки текст не уходит в поиск',
+);
+await bot.handleUpdate(command(ADMIN_ID, '/start'));
 
 // ── 12m. Черновики не должны утекать ──────────────────────────────
 // Лимитер к этому моменту на взводе — сбрасываем, иначе вместо ответов
@@ -1610,6 +1789,7 @@ await db.delete(films).where(
 );
 // Карточка без файла — по file_unique_id её не поймать, чистим по названию.
 await db.delete(films).where(eq(films.titleRu, 'Фильм без файла'));
+await db.delete(films).where(eq(films.titleRu, 'Фильм без файла — скоро'));
 // user_id у запросов обнуляется при удалении юзера, поэтому чистим и по тексту:
 // иначе мусор от упавшего прогона ломает следующий.
 await db.delete(searchQueries).where(inArray(searchQueries.userId, [GUEST_ID]));
@@ -1627,6 +1807,7 @@ const testIds = [
   INVITER_ID,
   INVITED_ID,
   OVER_ID,
+  CODE_ID,
   ...farmIds,
 ];
 await db.delete(broadcasts).where(eq(broadcasts.text, 'Привет, это <b>тест</b>'));

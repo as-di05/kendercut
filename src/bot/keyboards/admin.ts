@@ -109,10 +109,12 @@ export const cardKeyboard = (
 ): InlineKeyboard => {
   const kb = new InlineKeyboard();
 
-  // Без файла публиковать нечего — вместо публикации предлагаем привязать видео.
-  if (!hasFile) kb.text('📎 Привязать файл', admin.attach(filmId));
-  else if (isPublished) kb.text('🚫 Снять с публикации', admin.unpublish(filmId));
+  if (isPublished) kb.text('🚫 Снять с публикации', admin.unpublish(filmId));
   else kb.text('✅ Опубликовать', admin.publish(filmId));
+
+  // Публикации не мешает, но кнопка нужна рядом: карточку без файла
+  // обычно для того и заводят, чтобы привязать видео позже.
+  if (!hasFile) kb.row().text('📎 Привязать файл', admin.attach(filmId));
 
   return kb
     .row()

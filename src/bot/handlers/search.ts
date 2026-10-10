@@ -1,11 +1,12 @@
 import { Composer, InlineKeyboard } from 'grammy';
 import { logSearch } from '../../db/repositories/analytics.js';
 import { getFilmByCode, isValidCode, searchFilms } from '../../db/repositories/films.js';
-import { openFilmCard } from './catalog.js';
+import type { FilmCard } from '../../db/repositories/films.js';
+import { openFilmOrGate } from './catalog.js';
 import { escapeHtml, plural } from '../../lib/format.js';
 import type { BotContext } from '../context.js';
 import { renderScreen } from '../screen.js';
-import { cat, filmCardKeyboard } from '../keyboards/catalog.js';
+import { cat } from '../keyboards/catalog.js';
 import { nav } from '../keyboards/main.js';
 
 export const searchHandler = new Composer<BotContext>();
@@ -42,7 +43,8 @@ searchHandler.on('message:text', async (ctx, next) => {
       ctx.session.awaiting = undefined;
       ctx.session.back = cat.home;
       await logSearch(ctx.from?.id, query, 1);
-      await openFilmCard(ctx, byCode.id);
+      // Пришли по коду — гейт спонсоров встречает сразу, до карточки.
+      await openFilmOrGate(ctx, byCode.id);
       return;
     }
   }
@@ -73,17 +75,18 @@ searchHandler.on('message:text', async (ctx, next) => {
     return;
   }
 
-  // Единственное совпадение — сразу карточка, лишний список только мешает.
-  if (films.length === 1) {
-    const film = films[0]!;
-    ctx.session.back = cat.home;
-    await ctx.reply(`<b>${escapeHtml(film.titleRu)}</b>`, {
-      parse_mode: 'HTML',
-      reply_markup: filmCardKeyboard(film.id),
-    });
-    return;
-  }
+  await showResults(ctx, query, films);
+});
 
+/**
+ * Список найденного: каждое название — кнопка, по ней открывается полная
+ * карточка с постером и «Смотреть».
+ *
+ * Единственное совпадение показываем так же, списком. Раньше для него делали
+ * исключение и слали голое название с кнопкой «Смотреть» — получалась
+ * обрезанная карточка без постера, года и описания, то есть хуже обычной.
+ */
+async function showResults(ctx: BotContext, query: string, films: FilmCard[]): Promise<void> {
   const kb = new InlineKeyboard();
   for (const film of films) {
     const year = film.year ? ` (${film.year})` : '';
@@ -91,9 +94,34 @@ searchHandler.on('message:text', async (ctx, next) => {
   }
   kb.text('‹ В меню', nav.home);
 
-  ctx.session.back = cat.home;
+  // «Назад» из карточки вернёт сюда же, а не в корень каталога.
+  ctx.session.back = cat.searchResults;
+
+  // Вернулись сюда из карточки — убираем её. Карточка уходит фотографией,
+  // отредактировать её в текстовый список нельзя, а если просто дослать
+  // список, постер останется висеть над ним.
+  const trigger = ctx.callbackQuery?.message;
+  if (trigger) {
+    await ctx.api.deleteMessage(trigger.chat.id, trigger.message_id).catch(() => undefined);
+  }
+
   await ctx.reply(
     `Нашёл ${plural(films.length, 'фильм', 'фильма', 'фильмов')} по запросу «${escapeHtml(query)}»:`,
     { parse_mode: 'HTML', reply_markup: kb },
   );
+}
+
+/** Возврат из карточки к результатам поиска — запрос помним в сессии. */
+searchHandler.callbackQuery(cat.searchResults, async (ctx) => {
+  await ctx.answerCallbackQuery();
+
+  const query = ctx.session.lastQuery;
+  const films = query ? await searchFilms(query, MAX_RESULTS) : [];
+
+  if (!query || films.length === 0) {
+    await renderScreen(ctx, PROMPT, new InlineKeyboard().text('‹ В меню', nav.home));
+    return;
+  }
+
+  await showResults(ctx, query, films);
 });

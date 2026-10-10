@@ -4,7 +4,7 @@ import type { BotContext } from '../context.js';
 import { renderScreen } from '../screen.js';
 import { cat } from '../keyboards/catalog.js';
 import { mainMenu, nav } from '../keyboards/main.js';
-import { openFilmCard } from './catalog.js';
+import { openFilmOrGate } from './catalog.js';
 
 export const startHandler = new Composer<BotContext>();
 
@@ -18,19 +18,21 @@ const GREETING = [
 startHandler.command('start', async (ctx) => {
   const payload = (ctx.match ?? '').trim();
 
-  // Диплинк на конкретный фильм: /start film_42 или /start code_1234.
-  // Второй вид нужен, чтобы код из рекламы работал ссылкой, а не только вводом.
-  const filmId = payload.startsWith('code_')
-    ? (await getFilmByCode(payload.slice('code_'.length)))?.id
-    : parseFilmDeeplink(payload);
+  // Ссылка на конкретный фильм: /start film_42 или /start code_777.
+  // Второй вид нужен, чтобы код из рекламы работал и ссылкой, а не только вводом.
+  const wantsFilm = payload.startsWith('film_') || payload.startsWith('code_');
 
-  if (filmId !== undefined) {
+  if (wantsFilm) {
     ctx.session.awaiting = undefined;
     ctx.session.back = cat.home;
-    if (await openFilmCard(ctx, filmId)) return;
-  }
 
-  if (filmId !== undefined || payload.startsWith('code_')) {
+    const filmId = payload.startsWith('code_')
+      ? (await getFilmByCode(payload.slice('code_'.length)))?.id
+      : parseFilmDeeplink(payload);
+
+    // Пришли за конкретным фильмом — гейт спонсоров встречает сразу.
+    if (filmId !== undefined && (await openFilmOrGate(ctx, filmId))) return;
+
     await ctx.reply('Этот фильм больше недоступен.', { reply_markup: mainMenu(ctx.isAdmin) });
     return;
   }

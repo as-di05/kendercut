@@ -3,9 +3,12 @@ import { getChannelByChatId, updateChannel, upsertChannel } from '../../db/repos
 import { config } from '../../lib/config.js';
 import { escapeHtml } from '../../lib/format.js';
 import { logger } from '../../lib/logger.js';
+import { checkAccess } from '../../services/access.js';
 import { forgetGateResult, rememberJoinRequest } from '../../services/sponsor-gate.js';
 import type { BotContext } from '../context.js';
 import { admin } from '../keyboards/admin.js';
+import { missingText } from '../keyboards/sponsor.js';
+import { openFilmCard } from './catalog.js';
 import { serveFilm } from './watch.js';
 
 export const sponsorHandler = new Composer<BotContext>();
@@ -16,6 +19,27 @@ sponsorHandler.callbackQuery(/^g:c:(\d+)$/, async (ctx) => {
   // Человек только что подписался — ждать, пока протухнет кэш, незачем.
   await forgetGateResult(ctx.user.tgId);
   await serveFilm(ctx, Number(ctx.match[1]), { fromGateCheck: true });
+});
+
+/**
+ * То же «Проверить», но для пришедших по коду: карточку они ещё не видели,
+ * и наградой за подписку должна стать именно она — название, описание,
+ * постер. Файл человек заберёт уже кнопкой «Смотреть», если он есть.
+ */
+sponsorHandler.callbackQuery(/^g:r:(\d+)$/, async (ctx) => {
+  const filmId = Number(ctx.match[1]);
+  await forgetGateResult(ctx.user.tgId);
+
+  const access = await checkAccess(ctx.api, ctx.user.tgId);
+  if (!access.allowed && access.reason === 'sponsor_required') {
+    await ctx.answerCallbackQuery({ text: missingText(access.missing), show_alert: true });
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+  if (!(await openFilmCard(ctx, filmId))) {
+    await ctx.reply('Этот фильм больше недоступен.');
+  }
 });
 
 // ─── Заявки в приватные каналы ───────────────────────────────────────

@@ -10,7 +10,8 @@ import {
 } from '../../db/repositories/films.js';
 import type { FilmCard } from '../../db/repositories/films.js';
 import { escapeHtml, fitCaption } from '../../lib/format.js';
-import { serveFilm } from './watch.js';
+import { checkAccess } from '../../services/access.js';
+import { denied, isDeliverable, serveFilm } from './watch.js';
 import type { BotContext } from '../context.js';
 import { renderScreen } from '../screen.js';
 import {
@@ -142,6 +143,33 @@ export async function openFilmCard(ctx: BotContext, filmId: number): Promise<boo
 }
 
 /**
+ * Приход за конкретным фильмом — по коду или по ссылке из рекламы.
+ *
+ * Здесь гейт спонсоров показывается сразу, до карточки: человек пришёл
+ * целенаправленно, и это тот самый момент, ради которого гейт и заводят.
+ * В каталоге наоборот — там сначала дают походить и посмотреть.
+ */
+export async function openFilmOrGate(ctx: BotContext, filmId: number): Promise<boolean> {
+  const film = await getFilm(filmId);
+  if (!film) return false;
+
+  // Гейт — да, пейволл — нет. Подписаться на каналы человек готов сразу,
+  // а вот решать про оплату, не увидев, что за фильм, он не станет:
+  // пейволл он получит на «Смотреть», уже посмотрев карточку.
+  //
+  // Гейт показываем и фильму без файла: за кодом стоит прежде всего
+  // название с описанием, а видео — то, что добавляется к ним.
+  const access = await checkAccess(ctx.api, ctx.user.tgId);
+  if (!access.allowed && access.reason === 'sponsor_required') {
+    await denied(ctx, film.id, access, false, 'reveal');
+    return true;
+  }
+
+  await showFilm(ctx, film);
+  return true;
+}
+
+/**
  * Возврат к списку, откуда открыли карточку: его адрес запомнен в сессии.
  * Разбираем адрес и вызываем нужную отрисовку напрямую — без повторного
  * прохода по композеру с подменой callback_data.
@@ -163,7 +191,9 @@ catalogHandler.callbackQuery(/^c:w:\d+$/, async (ctx) => {
 
 async function showFilm(ctx: BotContext, film: FilmCard): Promise<void> {
   const caption = await filmCaption(film);
-  const keyboard = filmCardKeyboard(film.id);
+  // Пришли из поиска — «Назад» вернёт к его результатам, а не в корень каталога.
+  const backTo = ctx.session.back === cat.searchResults ? cat.searchResults : cat.back;
+  const keyboard = filmCardKeyboard(film.id, backTo, isDeliverable(film));
 
   // Карточка бывает и фото с подписью, и текстом; Telegram не даёт превратить
   // одно в другое правкой, поэтому шлём новое сообщение, а прежнее убираем.
@@ -198,6 +228,8 @@ async function filmCaption(film: FilmCard): Promise<string> {
     film.titleOrig ? `<i>${escapeHtml(film.titleOrig)}</i>` : undefined,
     meta.length ? meta.join(' · ') : undefined,
     genreNames.length ? escapeHtml(genreNames.join(', ')) : undefined,
+    // Кнопки «Смотреть» у такой карточки нет — объясняем, почему.
+    isDeliverable(film) ? undefined : '⏳ <i>Видео скоро добавим</i>',
   ]
     .filter((line) => line !== undefined)
     .join('\n');

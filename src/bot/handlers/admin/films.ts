@@ -117,7 +117,7 @@ adminFilms.callbackQuery(/^a:code:\d+$/, async (ctx) => {
     [
       `Код сейчас: <code>${film?.code ?? '—'}</code>`,
       '',
-      'Пришлите новый — от 4 до 6 цифр.',
+      'Пришлите новый — от 3 до 6 цифр.',
       'Или <code>-</code>, чтобы бот подобрал свободный сам.',
     ].join('\n'),
     { parse_mode: 'HTML' },
@@ -272,6 +272,10 @@ adminFilms.on('message:text', async (ctx, next) => {
   switch (awaiting) {
     case 'film_code':
       return saveCode(ctx, draftFilmId, text);
+    case 'film_attach':
+      // Иначе текст уйдёт в обычный поиск, и админ решит, что бот его не понял.
+      await ctx.reply('Жду пересланный пост из канала-хранилища, а не текст.');
+      return;
     case 'film_title':
       return handleTitleSearch(ctx, draftFilmId, text);
     case 'film_manual':
@@ -311,7 +315,7 @@ async function saveCode(ctx: BotContext, filmId: number, text: string): Promise<
   const code = text === '-' ? await generateCode() : text;
 
   if (!isValidCode(code)) {
-    await ctx.reply('Код — от 4 до 6 цифр. Или «-», чтобы подобрал бот.');
+    await ctx.reply('Код — от 3 до 6 цифр. Или «-», чтобы подобрал бот.');
     return;
   }
   if (await codeTaken(code, filmId)) {
@@ -456,18 +460,14 @@ adminFilms.callbackQuery(/^a:pub1:\d+$/, async (ctx) => {
     return;
   }
 
-  // Опубликованная карточка без файла — это кнопка «Смотреть», которая
-  // ничего не отдаёт. Лучше не пустить сюда, чем разбираться потом.
-  if (film.storageMessageId === null && !film.fileId) {
-    await ctx.answerCallbackQuery({
-      text: 'Сначала привяжите файл — смотреть пока нечего',
-      show_alert: true,
-    });
-    return;
-  }
-
   await updateFilm(filmId!, { isPublished: true });
-  await ctx.answerCallbackQuery('Опубликован');
+
+  // Публиковать карточку без файла можно: код уходит в рекламу заранее,
+  // а видео догружается позже. Тем, кто придёт раньше файла, бот ответит
+  // «скоро появится» — и гейт им не показывает, чтобы не гнать людей
+  // подписываться за то, чего пока нет.
+  const hasFile = film.storageMessageId !== null || film.fileId !== null;
+  await ctx.answerCallbackQuery(hasFile ? 'Опубликован' : 'Опубликован без файла');
   await showCard(ctx, filmId!);
 });
 
@@ -562,7 +562,7 @@ async function cardText(film: Film): Promise<string> {
     genreNames.length ? escapeHtml(genreNames.join(', ')) : undefined,
     '',
     `🔢 Код: <code>${film.code ?? '—'}</code>`,
-    hasFile ? '🎞 Файл привязан' : '📎 Файла нет — публиковать нельзя',
+    hasFile ? '🎞 Файл привязан' : '📎 Файла нет — зрителям ответим «скоро появится»',
     status,
   ]
     .filter((line) => line !== undefined)
